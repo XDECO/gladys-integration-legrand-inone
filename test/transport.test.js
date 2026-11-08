@@ -1,0 +1,340 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import net from 'node:net';
+
+import { LegrandGateway, GatewayError, backoffDelay } from '../src/transport.js';
+
+// ---- helpers ---------------------------------------------------------------
+
+/** Fake gateway: a TCP server that records its sockets and what they receive. */
+async function startFakeServer(onConnection = () => {}) {
+  const sockets = [];
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    socket.on('error', () => {});
+    socket.resume(); // always read, otherwise the end of the connection is never noticed
+    onConnection(socket, sockets.length);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    port: server.address().port,
+    sockets,
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
+
+function once(emitter, event, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout waiting for "${event}"`)), timeoutMs);
+    emitter.once(event, (...args) => {
+      clearTimeout(timer);
+      resolve(args[0]);
+    });
+  });
+}
+
+function collect(emitter, event) {
+  const items = [];
+  emitter.on(event, (item) => items.push(item));
+  return items;
+}
+
+function waitUntil(predicate, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (predicate()) {
+        clearInterval(timer);
+        resolve();
+      } else if (Date.now() - started > timeoutMs) {
+        clearInterval(timer);
+        reject(new Error('timeout in waitUntil'));
+      }
+    }, 5);
+  });
+}
+
+function fastGateway(port, options = {}) {
+  return new LegrandGateway({
+    host: '127.0.0.1',
+    port,
+    sendIntervalMs: 0,
+    minReconnectDelayMs: 10,
+    maxReconnectDelayMs: 40,
+    ...options,
+  });
+}
+
+async function freeClosedPort() {
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+// ---- tests -----------------------------------------------------------------
+
+test('backoffDelay grows by the factor and is capped', () => {
+  const options = { minDelayMs: 1000, maxDelayMs: 30000, factor: 2 };
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5].map((attempt) => backoffDelay(attempt, options)),
+    [1000, 2000, 4000, 8000, 16000, 30000],
+  );
+  assert.equal(backoffDelay(10_000, options), 30000);
+});
+
+test('constructor validates host and port', () => {
+  assert.throws(() => new LegrandGateway({ port: 2000 }), TypeError);
+  assert.throws(() => new LegrandGateway({ host: 'x', port: 0 }), RangeError);
+  assert.throws(() => new LegrandGateway({ host: 'x', port: 70000 }), RangeError);
+});
+
+test('connects and emits frames, even when cut in pieces', async () => {
+  const server = await startFakeServer((socket) => {
+    socket.write('*1*1*0#1511');
+    setTimeout(() => socket.write('2945##*1*0*0#15112945##'), 20);
+  });
+  const gateway = fastGateway(server.port);
+  const frames = collect(gateway, 'frame');
+  try {
+    gateway.start();
+    await waitUntil(() => frames.length === 2);
+    assert.equal(frames[0].whatName, 'on');
+    assert.equal(frames[0].legrandId, 944559);
+    assert.equal(frames[0].unit, 1);
+    assert.equal(frames[1].whatName, 'off');
+    assert.equal(gateway.connected, true);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('setLight writes the validated frame', async () => {
+  let received = '';
+  const server = await startFakeServer((socket) => socket.on('data', (d) => (received += d.toString())));
+  const gateway = fastGateway(server.port);
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await gateway.setLight({ legrandId: 944559, unit: 1, on: true });
+    await gateway.setLight({ legrandId: 944559, unit: 1, on: false });
+    await waitUntil(() => received.length >= 32);
+    assert.equal(received, '*1*1*#15112945##*1*0*#15112945##');
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('writes are spaced by sendIntervalMs and keep their order', async () => {
+  let received = '';
+  const server = await startFakeServer((socket) => socket.on('data', (d) => (received += d.toString())));
+  const interval = 80;
+  const gateway = fastGateway(server.port, { sendIntervalMs: interval });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    const times = [];
+    const frames = ['*1*1*#15112945##', '*1*0*#15112945##', '*1*1*#15112946##'];
+    await Promise.all(
+      frames.map((frame) =>
+        gateway.send(frame).then(() => times.push(performance.now())),
+      ),
+    );
+    assert.equal(times.length, 3);
+    assert.ok(times[1] - times[0] >= interval - 15, `gap 1 was ${times[1] - times[0]}`);
+    assert.ok(times[2] - times[1] >= interval - 15, `gap 2 was ${times[2] - times[1]}`);
+    await waitUntil(() => received.length >= frames.join('').length);
+    assert.equal(received, frames.join(''));
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('commands are rejected at once when not connected', async () => {
+  const gateway = fastGateway(2000);
+  await assert.rejects(
+    gateway.setLight({ legrandId: 944559, unit: 1, on: true }),
+    (error) => error instanceof GatewayError && error.code === 'NOT_CONNECTED',
+  );
+});
+
+test('invalid frames are rejected', async () => {
+  const server = await startFakeServer();
+  const gateway = fastGateway(server.port);
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    for (const bad of ['hello', '*1*1*#15112945', '', null, 42, '*1*1*#abc##']) {
+      await assert.rejects(gateway.send(bad), (error) => error.code === 'INVALID_FRAME', String(bad));
+    }
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('waiting commands are rejected when the connection drops', async () => {
+  const server = await startFakeServer();
+  const gateway = fastGateway(server.port, { sendIntervalMs: 400, minReconnectDelayMs: 1000, maxReconnectDelayMs: 1000 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    const first = gateway.send('*1*1*#15112945##');
+    const second = gateway.send('*1*0*#15112945##');
+    const third = gateway.send('*1*1*#15112946##');
+    await first; // the first one goes out immediately
+    const disconnected = once(gateway, 'disconnected');
+    server.sockets[0].destroy();
+    await disconnected;
+    const results = await Promise.allSettled([second, third]);
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      assert.equal(result.reason.code, 'DISCONNECTED');
+    }
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('reconnects by itself after the server drops the connection', async () => {
+  const server = await startFakeServer((socket, count) => {
+    if (count === 1) setTimeout(() => socket.destroy(), 20);
+  });
+  const gateway = fastGateway(server.port);
+  const states = collect(gateway, 'state');
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await once(gateway, 'disconnected');
+    await once(gateway, 'connected');
+    assert.equal(server.sockets.length, 2);
+    assert.deepEqual(states.slice(0, 5), ['connecting', 'connected', 'waiting', 'connecting', 'connected']);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('a half frame from the old connection is not glued to the next one', async () => {
+  const server = await startFakeServer((socket, count) => {
+    if (count === 1) {
+      socket.write('*1*1*0#1511');
+      setTimeout(() => socket.destroy(), 20);
+    } else {
+      socket.write('*1*0*0#15112945##');
+    }
+  });
+  const gateway = fastGateway(server.port);
+  const frames = collect(gateway, 'frame');
+  try {
+    gateway.start();
+    await waitUntil(() => frames.length >= 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(frames.length, 1);
+    assert.equal(frames[0].type, 'command');
+    assert.equal(frames[0].raw, '*1*0*0#15112945##');
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('keeps retrying with a growing delay while the gateway is down, and stop() ends it', async () => {
+  const port = await freeClosedPort();
+  const gateway = fastGateway(port, { minReconnectDelayMs: 10, maxReconnectDelayMs: 40 });
+  const warnings = collect(gateway, 'warning');
+  const stamps = [];
+  gateway.on('state', (state) => state === 'connecting' && stamps.push(performance.now()));
+  gateway.start();
+  await waitUntil(() => stamps.length >= 6, 3000);
+  const gaps = stamps.slice(1).map((time, index) => time - stamps[index]);
+  assert.ok(gaps[1] >= gaps[0] - 5, `delays should not shrink: ${gaps}`);
+  assert.ok(gaps[gaps.length - 1] <= 120, `delay should be capped: ${gaps}`);
+  assert.ok(warnings.length >= 1);
+
+  gateway.stop();
+  const attemptsAtStop = stamps.length;
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(stamps.length, attemptsAtStop, 'no attempt after stop()');
+  assert.equal(gateway.state, 'stopped');
+});
+
+test('the delay goes back to the minimum after a successful connection', async () => {
+  const server = await startFakeServer((socket, count) => {
+    if (count <= 2) setTimeout(() => socket.destroy(), 10);
+  });
+  const gateway = fastGateway(server.port, { minReconnectDelayMs: 10, maxReconnectDelayMs: 1000, backoffFactor: 10 });
+  try {
+    gateway.start();
+    // the first two connections are dropped by the server, the third one stays
+    await waitUntil(() => server.sockets.length >= 3 && gateway.connected, 3000);
+    assert.equal(gateway.attempt, 0);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('too many waiting commands are refused', async () => {
+  const server = await startFakeServer();
+  const gateway = fastGateway(server.port, { maxQueueLength: 2, sendIntervalMs: 500 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    // Three commands in the same tick: the queue holds two, the third is refused.
+    const first = gateway.send('*1*1*#15112945##');
+    const second = gateway.send('*1*0*#15112945##');
+    const third = gateway.send('*1*1*#15112946##');
+    await assert.rejects(third, (error) => error instanceof GatewayError && error.code === 'QUEUE_FULL');
+    await first; // goes out right away
+    gateway.stop(); // the second one was still waiting for its turn
+    await assert.rejects(second, (error) => error.code === 'STOPPED');
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('stop() closes the connection and rejects waiting commands', async () => {
+  const server = await startFakeServer();
+  const gateway = fastGateway(server.port, { sendIntervalMs: 400 });
+  gateway.start();
+  await once(gateway, 'connected');
+  const first = gateway.send('*1*1*#15112945##');
+  const second = gateway.send('*1*0*#15112945##');
+  await first;
+  const closed = new Promise((resolve) => server.sockets[0].once('close', resolve));
+  gateway.stop();
+  await assert.rejects(second, (error) => error.code === 'STOPPED');
+  await closed;
+  assert.equal(gateway.state, 'stopped');
+  await server.close();
+});
+
+test('a failing frame listener does not break the connection', async () => {
+  const server = await startFakeServer((socket) => socket.write('*1*1*0#15112945##*1*0*0#15112945##'));
+  const gateway = fastGateway(server.port);
+  const warnings = collect(gateway, 'warning');
+  let calls = 0;
+  gateway.on('frame', () => {
+    calls += 1;
+    throw new Error('listener bug');
+  });
+  try {
+    gateway.start();
+    await waitUntil(() => calls === 2);
+    assert.equal(warnings.length, 2);
+    assert.equal(gateway.connected, true);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});

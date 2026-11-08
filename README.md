@@ -4,7 +4,7 @@ Unofficial external integration for [Gladys Assistant](https://gladysassistant.c
 Legrand **In One by Legrand** (PLC / CPL) lights through the Legrand **882 13** USB interface.
 Formerly known as *Boxio* in the Jeedom community.
 
-> Not affiliated with Legrand. Status: **phase 1 of 6** (protocol library only, not installable yet).
+> Not affiliated with Legrand. Status: **phase 2 of 6** (protocol library and TCP transport, not installable yet).
 
 ## Roadmap
 
@@ -12,7 +12,7 @@ Formerly known as *Boxio* in the Jeedom community.
 |---|---|---|
 | 0 | Feasibility proofs on real hardware | done |
 | 1 | Protocol library and tests (`src/protocol.js`) | done |
-| 2 | TCP transport (reconnection, send queue) | todo |
+| 2 | TCP transport (`src/transport.js`: reconnection, paced send) | done |
 | 3 | Gladys layer (manifest, discovery, commands, states) | todo |
 | 4 | Docker image and CI | todo |
 | 5 | Acceptance tests on the real installation | todo |
