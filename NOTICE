@@ -1,0 +1,24 @@
+Legrand In One CPL - Gladys Assistant external integration
+Copyright 2026 XDECO
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This is an unofficial integration. It is not affiliated with, endorsed by or
+sponsored by Legrand. "Legrand" and "In One by Legrand" are trademarks of
+their respective owner.
+
+Acknowledgements
+----------------
+The wire protocol (frame syntax, device classes, address layout) was studied
+from public sources and verified by capturing and sending frames on real
+hardware:
+
+  - iobl, a Python library for Legrand In One devices (MIT License):
+    https://github.com/boblegal31/iobl
+  - the public documentation of the Boxio plugin for Jeedom:
+    https://apages2.github.io/pluginjeedom-boxio/fr_FR/
+
+The code of this project is an independent implementation. No source code
+from iobl or from the Boxio / Legrand Boxio et Myhome plugins is included.
+If code from iobl is ever copied here, its MIT copyright notice must be added
+to this file.
