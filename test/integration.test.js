@@ -1,0 +1,403 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { LegrandIntegration } from '../src/integration.js';
+import { CircuitRegistry } from '../src/circuits.js';
+import { GatewayError } from '../src/transport.js';
+import { parseFrame } from '../src/protocol.js';
+
+const CONSTANTS = { category: 'light', type: 'binary' };
+// 15112945 = 944559 * 16 + 1  -> circuit "944559-1"
+const ON = parseFrame('*1*1*0#15112945##');
+const OFF = parseFrame('*1*0*0#15112945##');
+const FEATURE_ID = 'ext:sel:light:944559-1:binary';
+
+function fakeLogger() {
+  const logs = { info: [], warn: [], error: [], debug: [] };
+  const logger = {};
+  for (const level of Object.keys(logs)) logger[level] = (...args) => logs[level].push(args);
+  logger.logs = logs;
+  return logger;
+}
+
+class FakeGateway extends EventEmitter {
+  constructor(config) {
+    super();
+    this.config = config;
+    this.started = 0;
+    this.stopped = 0;
+    this.commands = [];
+    this.setLightError = null;
+  }
+  start() { this.started += 1; }
+  stop() { this.stopped += 1; }
+  async setLight(command) {
+    if (this.setLightError) throw this.setLightError;
+    this.commands.push(command);
+  }
+}
+
+function fakeGladys({ config = {}, configError = null } = {}) {
+  const gladys = {
+    handlers: {},
+    published: [],
+    discovered: [],
+    statuses: [],
+    publishError: null,
+    onScanRequest(cb) { this.handlers.scan = cb; },
+    onSetValue(cb) { this.handlers.setValue = cb; },
+    onConfigUpdated(cb) { this.handlers.configUpdated = cb; },
+    externalIds(type, platformId) {
+      const device = `ext:sel:${type}:${platformId}`;
+      return { device, feature: (key) => `${device}:${key}` };
+    },
+    async getConfig() {
+      if (configError) throw configError;
+      return config;
+    },
+    async publishState(id, value) {
+      if (this.publishError) throw this.publishError;
+      this.published.push([id, value]);
+    },
+    async publishDiscoveredDevices(devices) { this.discovered.push(devices); },
+    async setConnectionStatus(connected, message) { this.statuses.push([connected, message]); },
+  };
+  return gladys;
+}
+
+function fakeStorage({ saved = null, writeError = null } = {}) {
+  return {
+    saved,
+    writes: [],
+    async read() { return this.saved; },
+    async write(data) {
+      if (writeError) throw writeError;
+      this.writes.push(JSON.parse(JSON.stringify(data)));
+    },
+  };
+}
+
+async function setup(options = {}) {
+  const gladys = options.gladys || fakeGladys();
+  const storage = options.storage || fakeStorage();
+  const logger = fakeLogger();
+  const gateways = [];
+  const integration = new LegrandIntegration({
+    gladys,
+    createGateway: (config) => {
+      const gateway = new FakeGateway(config);
+      gateways.push(gateway);
+      return gateway;
+    },
+    registry: new CircuitRegistry(),
+    storage,
+    constants: CONSTANTS,
+    logger,
+    now: () => 1000,
+  });
+  integration.attach();
+  await integration.start();
+  return { integration, gladys, storage, logger, gateways, gateway: gateways[0] };
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('attach registers the three Gladys handlers', async () => {
+  const { gladys } = await setup();
+  assert.equal(typeof gladys.handlers.scan, 'function');
+  assert.equal(typeof gladys.handlers.setValue, 'function');
+  assert.equal(typeof gladys.handlers.configUpdated, 'function');
+});
+
+test('start opens the gateway with the configured host and port', async () => {
+  const gladys = fakeGladys({ config: { host: '192.168.1.9', port: 4001 } });
+  const { gateway, gateways } = await setup({ gladys });
+  assert.equal(gateways.length, 1);
+  assert.deepEqual(gateway.config, { host: '192.168.1.9', port: 4001 });
+  assert.equal(gateway.started, 1);
+});
+
+test('start falls back to the defaults when the settings cannot be read', async () => {
+  const gladys = fakeGladys({ configError: new Error('boom') });
+  const { gateway, logger } = await setup({ gladys });
+  assert.deepEqual(gateway.config, { host: '172.17.0.1', port: 2000 });
+  assert.equal(logger.logs.warn.length, 1);
+});
+
+test('start loads the saved circuits, so a scan lists them right away', async () => {
+  const storage = fakeStorage({ saved: { version: 1, circuits: [{ legrandId: 944559, unit: 1 }] } });
+  const { gladys } = await setup({ storage });
+  await gladys.handlers.scan();
+  assert.equal(gladys.discovered[0].length, 1);
+  assert.equal(gladys.discovered[0][0].external_id, 'ext:sel:light:944559-1');
+});
+
+test('start survives a storage that throws', async () => {
+  const storage = { read: async () => { throw new Error('io'); }, write: async () => {} };
+  const { gateway, logger } = await setup({ storage });
+  assert.equal(gateway.started, 1);
+  assert.equal(logger.logs.warn.length, 1);
+});
+
+test('a frame from a new circuit is published, remembered and saved', async () => {
+  const { gladys, gateway, storage } = await setup();
+  gateway.emit('frame', ON);
+  await tick();
+  assert.deepEqual(gladys.published, [[FEATURE_ID, 1]]);
+  assert.deepEqual(storage.writes, [{ version: 1, circuits: [{ legrandId: 944559, unit: 1 }] }]);
+});
+
+test('only changes are published, and off is published as 0', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.emit('frame', ON);
+  gateway.emit('frame', ON);
+  gateway.emit('frame', OFF);
+  gateway.emit('frame', OFF);
+  await tick();
+  assert.deepEqual(gladys.published, [[FEATURE_ID, 1], [FEATURE_ID, 0]]);
+});
+
+test('the circuit is saved once, not at every frame', async () => {
+  const { gateway, storage } = await setup();
+  gateway.emit('frame', ON);
+  gateway.emit('frame', OFF);
+  gateway.emit('frame', ON);
+  await tick();
+  assert.equal(storage.writes.length, 1);
+});
+
+test('frames that are not light on/off are ignored', async () => {
+  const { gladys, gateway, storage } = await setup();
+  gateway.emit('frame', parseFrame('*25*11*0#15112945##'));
+  gateway.emit('frame', parseFrame('*#*1##'));
+  gateway.emit('frame', parseFrame('garbage'));
+  await tick();
+  assert.deepEqual(gladys.published, []);
+  assert.deepEqual(storage.writes, []);
+});
+
+test('a failing publish never throws and is reported once per circuit', async () => {
+  const gladys = fakeGladys();
+  gladys.publishError = new Error('404 device not found');
+  const { gateway, logger } = await setup({ gladys });
+  gateway.emit('frame', ON);
+  gateway.emit('frame', OFF);
+  gateway.emit('frame', ON);
+  await tick();
+  assert.equal(logger.logs.warn.length, 1);
+});
+
+test('a circuit warns again after a publish that worked', async () => {
+  const gladys = fakeGladys();
+  const { gateway, logger } = await setup({ gladys });
+  gladys.publishError = new Error('nope');
+  gateway.emit('frame', ON);
+  await tick();
+  gladys.publishError = null;
+  gateway.emit('frame', OFF);
+  await tick();
+  gladys.publishError = new Error('nope again');
+  gateway.emit('frame', ON);
+  await tick();
+  assert.equal(logger.logs.warn.length, 2);
+});
+
+test('a failing save is logged, not thrown, and later saves still run', async () => {
+  const storage = fakeStorage({ writeError: new Error('read-only') });
+  const { gateway, logger, integration } = await setup({ storage });
+  gateway.emit('frame', ON);
+  await integration.stop();
+  assert.equal(logger.logs.warn.length, 1);
+  assert.deepEqual(logger.logs.warn[0][0], 'Could not save the circuits');
+});
+
+test('scan with no known circuit publishes an empty list and explains what to do', async () => {
+  const { gladys, logger } = await setup();
+  await gladys.handlers.scan();
+  assert.deepEqual(gladys.discovered, [[]]);
+  assert.match(logger.logs.info.at(-1)[0], /Press the switches/);
+});
+
+test('scan describes each circuit as a controllable light with feedback', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.emit('frame', ON);
+  await gladys.handlers.scan();
+  assert.deepEqual(gladys.discovered[0], [
+    {
+      name: 'Legrand 944559-1',
+      external_id: 'ext:sel:light:944559-1',
+      params: [
+        { name: 'LEGRAND_ID', value: '944559' },
+        { name: 'UNIT', value: '1' },
+      ],
+      features: [
+        {
+          name: 'On/Off',
+          external_id: FEATURE_ID,
+          category: 'light',
+          type: 'binary',
+          min: 0,
+          max: 1,
+          read_only: false,
+          has_feedback: true,
+          keep_history: true,
+        },
+      ],
+    },
+  ]);
+});
+
+test('the feature id published for a bus frame matches the one declared at discovery', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.emit('frame', ON);
+  await tick();
+  await gladys.handlers.scan();
+  assert.equal(gladys.published[0][0], gladys.discovered[0][0].features[0].external_id);
+});
+
+// ---- commands -------------------------------------------------------------------
+
+const DEVICE = {
+  external_id: 'ext:sel:light:944559-1',
+  params: [
+    { name: 'LEGRAND_ID', value: '944559' },
+    { name: 'UNIT', value: '1' },
+  ],
+};
+const FEATURE = { external_id: FEATURE_ID };
+
+test('a Gladys command writes to the bus then publishes the requested state', async () => {
+  const { gladys, gateway } = await setup();
+  await gladys.handlers.setValue(DEVICE, FEATURE, 1);
+  assert.deepEqual(gateway.commands, [{ legrandId: 944559, unit: 1, on: true }]);
+  assert.deepEqual(gladys.published, [[FEATURE_ID, 1]]);
+
+  await gladys.handlers.setValue(DEVICE, FEATURE, 0);
+  assert.deepEqual(gateway.commands[1], { legrandId: 944559, unit: 1, on: false });
+  assert.deepEqual(gladys.published[1], [FEATURE_ID, 0]);
+});
+
+test('a command works with the circuit read from the external id alone', async () => {
+  const { gladys, gateway } = await setup();
+  await gladys.handlers.setValue({ external_id: 'ext:sel:light:648966-2' }, FEATURE, 1);
+  assert.deepEqual(gateway.commands, [{ legrandId: 648966, unit: 2, on: true }]);
+});
+
+test('a command that cannot be written fails, and no state is published', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.setLightError = new GatewayError('NOT_CONNECTED', 'down');
+  await assert.rejects(gladys.handlers.setValue(DEVICE, FEATURE, 1), { code: 'NOT_CONNECTED' });
+  assert.deepEqual(gladys.published, []);
+});
+
+test('a command on a circuit never seen before saves it', async () => {
+  const { gladys, storage } = await setup();
+  await gladys.handlers.setValue(DEVICE, FEATURE, 1);
+  await tick();
+  assert.deepEqual(storage.writes, [{ version: 1, circuits: [{ legrandId: 944559, unit: 1 }] }]);
+});
+
+test('a command does not fail when only the state publication fails', async () => {
+  const gladys = fakeGladys();
+  gladys.publishError = new Error('api down');
+  const { gateway } = await setup({ gladys });
+  await gladys.handlers.setValue(DEVICE, FEATURE, 1);
+  assert.equal(gateway.commands.length, 1);
+});
+
+test('a bus frame after a command only publishes if the state differs', async () => {
+  const { gladys, gateway } = await setup();
+  await gladys.handlers.setValue(DEVICE, FEATURE, 1);
+  gateway.emit('frame', ON); // same as requested: nothing new
+  await tick();
+  assert.equal(gladys.published.length, 1);
+  gateway.emit('frame', OFF); // someone pressed the wall switch
+  await tick();
+  assert.deepEqual(gladys.published.at(-1), [FEATURE_ID, 0]);
+});
+
+test('unsupported values and unknown devices are refused', async () => {
+  const { gladys, gateway } = await setup();
+  await assert.rejects(gladys.handlers.setValue(DEVICE, FEATURE, 0.5), /only accepts 0 or 1/);
+  await assert.rejects(gladys.handlers.setValue(DEVICE, FEATURE, 2), /only accepts 0 or 1/);
+  await assert.rejects(gladys.handlers.setValue(DEVICE, FEATURE, '1'), /only accepts 0 or 1/);
+  await assert.rejects(gladys.handlers.setValue({ external_id: 'ext:sel:light:zzz' }, FEATURE, 1), /Cannot find the circuit/);
+  assert.deepEqual(gateway.commands, []);
+});
+
+// ---- settings and connection ----------------------------------------------------
+
+test('a settings change to another gateway closes the old one and opens a new one', async () => {
+  const { gladys, gateway, gateways } = await setup();
+  await gladys.handlers.configUpdated({ host: '10.0.0.5', port: 2001 });
+  assert.equal(gateway.stopped, 1);
+  assert.equal(gateways.length, 2);
+  assert.deepEqual(gateways[1].config, { host: '10.0.0.5', port: 2001 });
+  assert.equal(gateways[1].started, 1);
+});
+
+test('a settings update that does not change the gateway does nothing', async () => {
+  const { gladys, gateway, gateways } = await setup();
+  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000 });
+  await gladys.handlers.configUpdated({});
+  assert.equal(gateways.length, 1);
+  assert.equal(gateway.stopped, 0);
+});
+
+test('events of a replaced gateway are ignored and commands go to the new one', async () => {
+  const { gladys, gateway, gateways } = await setup();
+  await gladys.handlers.configUpdated({ host: '10.0.0.5', port: 2001 });
+  gateway.emit('frame', ON);
+  await tick();
+  assert.deepEqual(gladys.published, []);
+
+  await gladys.handlers.setValue(DEVICE, FEATURE, 1);
+  assert.deepEqual(gateway.commands, []);
+  assert.equal(gateways[1].commands.length, 1);
+});
+
+test('the connection status follows the gateway and is only reported on change', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.emit('state', 'connecting');
+  gateway.emit('state', 'waiting');
+  gateway.emit('state', 'connecting');
+  gateway.emit('state', 'waiting');
+  await tick();
+  assert.equal(gladys.statuses.length, 1);
+  assert.equal(gladys.statuses[0][0], false);
+  assert.match(gladys.statuses[0][1].en, /172\.17\.0\.1:2000/);
+  assert.match(gladys.statuses[0][1].fr, /172\.17\.0\.1:2000/);
+
+  gateway.emit('state', 'connected');
+  gateway.emit('state', 'connected');
+  await tick();
+  assert.deepEqual(gladys.statuses.map((s) => s[0]), [false, true]);
+  assert.equal(gladys.statuses[1][1], undefined);
+});
+
+test('a failing status report is logged, not thrown', async () => {
+  const gladys = fakeGladys();
+  gladys.setConnectionStatus = async () => { throw new Error('api down'); };
+  const { gateway, logger } = await setup({ gladys });
+  gateway.emit('state', 'waiting');
+  await tick();
+  assert.equal(logger.logs.warn.length, 1);
+});
+
+test('gateway warnings are logged', async () => {
+  const { gateway, logger } = await setup();
+  gateway.emit('warning', new Error('socket error'));
+  assert.equal(logger.logs.warn.length, 1);
+});
+
+test('stop closes the gateway and waits for the last save', async () => {
+  const { gateway, integration, storage } = await setup();
+  gateway.emit('frame', ON);
+  await integration.stop();
+  assert.equal(gateway.stopped, 1);
+  assert.equal(storage.writes.length, 1);
+  await assert.rejects(
+    integration.gladys.handlers.setValue(DEVICE, FEATURE, 1),
+    /not configured/,
+  );
+});

@@ -1,0 +1,150 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { CircuitRegistry, circuitFromDevice } from '../src/circuits.js';
+import { parseFrame } from '../src/protocol.js';
+
+// 15112945 = 944559 * 16 + 1  -> circuit "944559-1"
+const ON = parseFrame('*1*1*0#15112945##');
+const OFF = parseFrame('*1*0*0#15112945##');
+
+test('a light frame creates a circuit and reports it as new and changed', () => {
+  const registry = new CircuitRegistry();
+  const obs = registry.observe(ON, 1000);
+  assert.equal(obs.isNew, true);
+  assert.equal(obs.changed, true);
+  assert.deepEqual(obs.circuit, { key: '944559-1', legrandId: 944559, unit: 1, on: true, lastSeen: 1000 });
+  assert.equal(registry.size, 1);
+});
+
+test('the same state again is not a change; the opposite state is', () => {
+  const registry = new CircuitRegistry();
+  registry.observe(ON, 1);
+  const again = registry.observe(ON, 2);
+  assert.equal(again.isNew, false);
+  assert.equal(again.changed, false);
+  assert.equal(again.circuit.lastSeen, 2);
+
+  const off = registry.observe(OFF, 3);
+  assert.equal(off.isNew, false);
+  assert.equal(off.changed, true);
+  assert.equal(off.circuit.on, false);
+});
+
+test('frames that are not light on/off are ignored', () => {
+  const registry = new CircuitRegistry();
+  assert.equal(registry.observe(parseFrame('*25*11*0#15112945##')), null); // scenario
+  assert.equal(registry.observe(parseFrame('*#*1##')), null); // ack
+  assert.equal(registry.observe(parseFrame('hello')), null); // unsupported
+  assert.equal(registry.observe(null), null);
+  assert.equal(registry.observe(undefined), null);
+  assert.equal(registry.size, 0);
+});
+
+test('setState records a state we caused and reports change correctly', () => {
+  const registry = new CircuitRegistry();
+  const first = registry.setState(944559, 1, true, 5);
+  assert.equal(first.isNew, true);
+  assert.equal(first.changed, true);
+  const same = registry.setState(944559, 1, true, 6);
+  assert.equal(same.changed, false);
+  assert.throws(() => registry.setState(944559, 16, true), RangeError);
+  assert.throws(() => registry.setState(-1, 0, true), RangeError);
+});
+
+test('get and list return copies, sorted by id then unit', () => {
+  const registry = new CircuitRegistry();
+  registry.setState(950680, 0, true, 1);
+  registry.setState(944559, 2, false, 1);
+  registry.setState(944559, 1, true, 1);
+  assert.deepEqual(registry.list().map((c) => c.key), ['944559-1', '944559-2', '950680-0']);
+
+  registry.get('944559-1').on = 'tampered';
+  registry.list()[0].on = 'tampered';
+  assert.equal(registry.get('944559-1').on, true);
+  assert.equal(registry.get('nope'), undefined);
+});
+
+test('toJSON keeps the circuits but not their state; load restores them with an unknown state', () => {
+  const registry = new CircuitRegistry();
+  registry.setState(944559, 1, true, 1);
+  registry.setState(648966, 2, false, 1);
+  const saved = JSON.parse(JSON.stringify(registry));
+  assert.deepEqual(saved, {
+    version: 1,
+    circuits: [
+      { legrandId: 648966, unit: 2 },
+      { legrandId: 944559, unit: 1 },
+    ],
+  });
+
+  const restored = new CircuitRegistry();
+  assert.equal(restored.load(saved), 2);
+  assert.equal(restored.get('944559-1').on, null);
+
+  // the first frame after a restart is a "change": the state was unknown
+  assert.equal(restored.observe(ON, 9).changed, true);
+});
+
+test('load skips bad data and never throws', () => {
+  const registry = new CircuitRegistry();
+  assert.equal(registry.load(null), 0);
+  assert.equal(registry.load('text'), 0);
+  assert.equal(registry.load({ version: 2, circuits: [{ legrandId: 1, unit: 1 }] }), 0);
+  assert.equal(registry.size, 0);
+  assert.equal(registry.load({ version: 1, circuits: 'x' }), 0);
+  assert.equal(
+    registry.load({
+      version: 1,
+      circuits: [
+        null,
+        { legrandId: 'abc', unit: 1 },
+        { legrandId: 1, unit: 99 },
+        { legrandId: -5, unit: 0 },
+        { legrandId: 7, unit: 3 },
+        { legrandId: 7, unit: 3 }, // duplicate
+      ],
+    }),
+    1,
+  );
+  assert.deepEqual(registry.list().map((c) => c.key), ['7-3']);
+});
+
+test('load does not overwrite a circuit already known with its state', () => {
+  const registry = new CircuitRegistry();
+  registry.setState(944559, 1, true, 1);
+  registry.load({ version: 1, circuits: [{ legrandId: 944559, unit: 1 }] });
+  assert.equal(registry.get('944559-1').on, true);
+});
+
+test('circuitFromDevice reads the params first, then the external id', () => {
+  const fromParams = circuitFromDevice({
+    external_id: 'ext:legrand:light:1-1',
+    params: [
+      { name: 'LEGRAND_ID', value: '944559' },
+      { name: 'UNIT', value: '1' },
+    ],
+  });
+  assert.deepEqual(fromParams, { legrandId: 944559, unit: 1, key: '944559-1' });
+
+  const fromId = circuitFromDevice({ external_id: 'ext:legrand:light:944559-2' });
+  assert.deepEqual(fromId, { legrandId: 944559, unit: 2, key: '944559-2' });
+});
+
+test('circuitFromDevice falls back to the external id when params are unusable', () => {
+  const device = {
+    external_id: 'ext:legrand:light:944559-2',
+    params: [
+      { name: 'LEGRAND_ID', value: 'oops' },
+      { name: 'UNIT', value: '2' },
+    ],
+  };
+  assert.equal(circuitFromDevice(device).key, '944559-2');
+});
+
+test('circuitFromDevice returns null for anything it cannot read', () => {
+  assert.equal(circuitFromDevice(null), null);
+  assert.equal(circuitFromDevice({}), null);
+  assert.equal(circuitFromDevice({ external_id: 'ext:legrand:light:abc' }), null);
+  assert.equal(circuitFromDevice({ external_id: 'ext:legrand:light:5-99' }), null);
+  assert.equal(circuitFromDevice({ external_id: 42 }), null);
+});

@@ -4,7 +4,7 @@ Unofficial external integration for [Gladys Assistant](https://gladysassistant.c
 Legrand **In One by Legrand** (PLC / CPL) lights through the Legrand **882 13** USB interface.
 Formerly known as *Boxio* in the Jeedom community.
 
-> Not affiliated with Legrand. Status: **phase 2 of 6** (protocol library and TCP transport, not installable yet).
+> Not affiliated with Legrand. Status: **phase 3 of 6** (protocol, TCP transport and Gladys layer; no Docker image yet, not installable).
 
 ## Roadmap
 
@@ -13,7 +13,7 @@ Formerly known as *Boxio* in the Jeedom community.
 | 0 | Feasibility proofs on real hardware | done |
 | 1 | Protocol library and tests (`src/protocol.js`) | done |
 | 2 | TCP transport (`src/transport.js`: reconnection, paced send) | done |
-| 3 | Gladys layer (manifest, discovery, commands, states) | todo |
+| 3 | Gladys layer (manifest, docs, discovery, commands, states) | done |
 | 4 | Docker image and CI | todo |
 | 5 | Acceptance tests on the real installation | todo |
 | 6 | Publication | todo |
@@ -35,3 +35,33 @@ npm test      # Node.js >= 20, no dependency
 ## License
 
 Apache-2.0, see `LICENSE` and `NOTICE`. Copyright 2026 XDECO.
+
+## Serial gateway (required)
+
+Gladys integrations run in a sandbox and cannot open a USB device. A small container exposes the 882 13 on a TCP port that the integration then connects to:
+
+```yaml
+services:
+  legrand-serial:
+    image: alpine/socat
+    container_name: legrand-serial
+    restart: always
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    devices:
+      - /dev/serial/by-id/<your-882-13>:/dev/legrand
+    ports:
+      - "172.17.0.1:2000:2000"
+    command: tcp-listen:2000,fork,reuseaddr,max-children=1 /dev/legrand,raw,echo=0,b115200,hupcl=0
+```
+
+## How circuits are found
+
+The Legrand bus cannot list its devices. The integration learns a circuit when a wall switch is pressed, saves it in `/data/circuits.json`, and offers it at the next scan.
+
+## Development
+
+```
+npm install
+npm test
+```
