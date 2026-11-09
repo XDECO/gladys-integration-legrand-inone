@@ -134,10 +134,12 @@ export class LegrandIntegration {
     }
 
     if (kind === 'light' && changed) {
+      this.logger.info(`Light ${circuit.key} is now ${circuit.on ? 'on' : 'off'} (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
       void this.#publish(ids.feature(LIGHT_FEATURE), circuit.on ? 1 : 0, `light:${circuit.key}`);
     } else if (kind === 'scenario' && triggered) {
       // A button click is an event: it is published every time, not only on change.
+      this.logger.info(`Scenario ${circuit.key} clicked (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
       void this.#publish(ids.feature(SCENARIO_FEATURE), 1, `scenario:${circuit.key}`);
     }

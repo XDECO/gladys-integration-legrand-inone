@@ -6,8 +6,8 @@
     "en": "Control Legrand In One (PLC) lights through the 882 13 USB serial interface",
     "fr": "Pilotez vos éclairages Legrand In One (CPL) via l'interface USB série 882 13"
   },
-  "version": "0.2.0",
-  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.2.0",
+  "version": "0.2.1",
+  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.2.1",
   "gladys_version": ">=4.86.0",
   "categories": [
     "lighting"
