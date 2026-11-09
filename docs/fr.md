@@ -22,12 +22,22 @@ Si un interrupteur n'apparaît pas, appuyez dessus de nouveau et relancez la rec
 - Met à jour l'état dans Gladys quand un interrupteur mural est utilisé.
 - Affiche chaque bouton de scénario Legrand comme un bouton dans Gladys (`Legrand scenario <id>-<unité>`). Il « clique » quand le scénario est lancé : vous pouvez l'utiliser comme déclencheur dans les scènes Gladys.
 
-## Boutons poussoirs à bascule
+## Appareils liés
 
-Certains boutons muraux envoient la même trame « allumer » à chaque appui, alors que le récepteur s'allume et s'éteint en alternance. Le bus ne dit pas l'état réel : listez ces circuits dans le réglage **Boutons poussoirs à bascule**, avec les numéros vus dans les journaux (par exemple `10383457, 15112946`). Chaque appui inverse alors l'état affiché dans Gladys.
+Le bus ne dit jamais l'état d'un récepteur. Quand un bouton pilote plusieurs lumières (un groupe, une scène), seul le bouton envoie une trame et les lumières restent muettes. Le réglage **Appareils liés** indique à l'intégration quelles lumières suivent quel bouton. Rien n'est envoyé sur le bus : seul l'état affiché dans Gladys est mis à jour.
+
+Utilisez les numéros de circuit affichés dans les journaux (`944559-1`). Une règle par ligne, ou séparées par `;` :
+
+```
+648966-1 -> 944559-1, 944559-2
+648966-2 -> 944559-1=on, 944559-2=off
+```
+
+- Avec une lumière à gauche, les lumières de droite copient son état (allumée, éteinte), qu'il vienne d'un interrupteur mural ou d'une commande dans Gladys.
+- Avec un bouton de scène à gauche, chaque lumière de droite prend l'état fixe écrit après `=` (`on` ou `off`).
 
 ## Limites de cette version
 
 - Le bus ne signale jamais l'état réel d'un récepteur. L'état affiché dans Gladys est déduit des trames et des commandes envoyées : il peut se décaler (par exemple après un scénario Legrand qui éteint des lampes). Une commande depuis Gladys le remet toujours d'accord.
-- Pour tenir Gladys à jour après un scénario Legrand, créez une scène Gladys déclenchée par le bouton du scénario, qui met les lampes concernées dans leur nouvel état.
+- Pour tenir Gladys à jour après un scénario Legrand, utilisez les appareils liés (règle `scénario -> lampe=on`).
 - Lumières tout ou rien uniquement : pas de variateurs, pas de volets, et Gladys ne peut pas lancer un scénario Legrand.

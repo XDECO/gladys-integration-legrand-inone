@@ -121,14 +121,14 @@ test('start opens the gateway with the configured host and port', async () => {
   const gladys = fakeGladys({ config: { host: '192.168.1.9', port: 4001 } });
   const { gateway, gateways } = await setup({ gladys });
   assert.equal(gateways.length, 1);
-  assert.deepEqual(gateway.config, { host: '192.168.1.9', port: 4001, toggleAddresses: [] });
+  assert.deepEqual(gateway.config, { host: '192.168.1.9', port: 4001, links: new Map() });
   assert.equal(gateway.started, 1);
 });
 
 test('start falls back to the defaults when the settings cannot be read', async () => {
   const gladys = fakeGladys({ configError: new Error('boom') });
   const { gateway, logger } = await setup({ gladys });
-  assert.deepEqual(gateway.config, { host: '172.17.0.1', port: 2000, toggleAddresses: [] });
+  assert.deepEqual(gateway.config, { host: '172.17.0.1', port: 2000, links: new Map() });
   assert.equal(logger.logs.warn.length, 1);
 });
 
@@ -349,7 +349,7 @@ test('a settings change to another gateway closes the old one and opens a new on
   await gladys.handlers.configUpdated({ host: '10.0.0.5', port: 2001 });
   assert.equal(gateway.stopped, 1);
   assert.equal(gateways.length, 2);
-  assert.deepEqual(gateways[1].config, { host: '10.0.0.5', port: 2001, toggleAddresses: [] });
+  assert.deepEqual(gateways[1].config, { host: '10.0.0.5', port: 2001, links: new Map() });
   assert.equal(gateways[1].started, 1);
 });
 
@@ -495,68 +495,129 @@ test('a scenario cannot be commanded from Gladys', async () => {
   assert.deepEqual(gateway.commands, []);
 });
 
-test('a circuit listed as toggle in the settings flips at each press', async () => {
-  const gladys = fakeGladys({ config: { toggle_circuits: '10383457' } });
-  const { gateway } = await setup({ gladys });
-  gateway.emit('frame', PUSH);
-  gateway.emit('frame', PUSH);
-  gateway.emit('frame', PUSH);
+// ---- linked devices ------------------------------------------------------------------
+
+const L2_ID = 'ext:sel:light:944559-2:binary'; // second light of 944559
+const L1_ID = FEATURE_ID; // 944559-1 (see the top of this file)
+const ON_648966_1 = parseFrame('*1*1*0#10383457##'); // 648966-1 on
+const OFF_648966_1 = parseFrame('*1*0*0#10383457##'); // 648966-1 off
+
+test('lights linked to a light copy its state, from a wall button', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-1, 944559-2' } });
+  const { gateway, gateways } = await setup({ gladys });
+  gateway.emit('frame', ON_648966_1);
   await tick();
   assert.deepEqual(gladys.published, [
     [PUSH_FEATURE_ID, 1],
+    [L1_ID, 1],
+    [L2_ID, 1],
+  ]);
+  gateway.emit('frame', OFF_648966_1);
+  await tick();
+  assert.deepEqual(gladys.published.slice(3), [
     [PUSH_FEATURE_ID, 0],
+    [L1_ID, 0],
+    [L2_ID, 0],
+  ]);
+  assert.equal(gateways.length, 1);
+});
+
+test('linked lights are only published when their state changes, and nothing is written to the bus', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-1' } });
+  const { gateway } = await setup({ gladys });
+  gateway.emit('frame', ON_648966_1);
+  gateway.emit('frame', ON_648966_1);
+  await tick();
+  assert.deepEqual(gladys.published, [[PUSH_FEATURE_ID, 1], [L1_ID, 1]]);
+  assert.deepEqual(gateway.commands, []);
+});
+
+test('a repeated frame resyncs a linked light that was changed on its own', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-1' } });
+  const { gateway } = await setup({ gladys });
+  gateway.emit('frame', ON_648966_1);
+  gateway.emit('frame', OFF); // 944559-1 switched off by its own switch
+  gateway.emit('frame', ON_648966_1); // the group button is pressed again
+  await tick();
+  assert.deepEqual(gladys.published, [
     [PUSH_FEATURE_ID, 1],
+    [L1_ID, 1],
+    [L1_ID, 0],
+    [L1_ID, 1],
   ]);
 });
 
-test('without the setting, the same presses publish once', async () => {
-  const { gladys, gateway } = await setup();
-  gateway.emit('frame', PUSH);
-  gateway.emit('frame', PUSH);
-  await tick();
-  assert.deepEqual(gladys.published, [[PUSH_FEATURE_ID, 1]]);
+test('a command from Gladys on the source updates its linked lights too', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-1, 944559-2' } });
+  const { gateway } = await setup({ gladys });
+  await gladys.handlers.setValue({ external_id: 'ext:sel:light:648966-1' }, { external_id: PUSH_FEATURE_ID }, 1);
+  assert.deepEqual(gateway.commands, [{ legrandId: 648966, unit: 1, on: true }]); // only the source is commanded
+  assert.deepEqual(gladys.published, [
+    [PUSH_FEATURE_ID, 1],
+    [L1_ID, 1],
+    [L2_ID, 1],
+  ]);
 });
 
-test('changing only the toggle list applies at once and keeps the same gateway', async () => {
+test('a scenario button sets the fixed states of its linked lights', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-2 -> 944559-1=on, 944559-2=off, 944559-3' } });
+  const { gateway } = await setup({ gladys });
+  gateway.emit('frame', SCENARIO_ACTION);
+  gateway.emit('frame', SCENARIO_STOP);
+  await tick();
+  assert.deepEqual(gladys.published, [
+    [SCENARIO_FEATURE_ID, 1],
+    [L1_ID, 1],
+    [L2_ID, 0],
+  ]); // 944559-3 has no state: skipped; the stop frame does nothing
+});
+
+test('links are applied at once when the settings change, without reopening the gateway', async () => {
   const { gladys, gateway, gateways } = await setup();
-  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000, toggle_circuits: '10383457' });
+  gateway.emit('frame', ON_648966_1);
+  await tick();
+  assert.deepEqual(gladys.published, [[PUSH_FEATURE_ID, 1]]);
+
+  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000, links: '648966-1 -> 944559-1' });
   assert.equal(gateways.length, 1);
   assert.equal(gateway.stopped, 0);
-
-  gateway.emit('frame', PUSH);
-  gateway.emit('frame', PUSH);
+  gateway.emit('frame', ON_648966_1);
   await tick();
-  assert.deepEqual(gladys.published, [
-    [PUSH_FEATURE_ID, 1],
-    [PUSH_FEATURE_ID, 0],
-  ]);
+  assert.deepEqual(gladys.published.slice(1), [[L1_ID, 1]]);
 
-  // and a later change of gateway still reopens it
-  await gladys.handlers.configUpdated({ host: '10.0.0.5', port: 2000, toggle_circuits: '10383457' });
-  assert.equal(gateways.length, 2);
+  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000, links: '' }); // removed
+  gateway.emit('frame', OFF_648966_1);
+  await tick();
+  assert.equal(gladys.published.slice(2).some(([id]) => id === L1_ID), false);
 });
 
-test('removing a circuit from the toggle list stops the flipping', async () => {
-  const gladys = fakeGladys({ config: { toggle_circuits: '10383457' } });
+test('a link cannot loop: only one level is followed', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-1; 944559-1 -> 648966-1' } });
   const { gateway } = await setup({ gladys });
-  await gladys.handlers.configUpdated({});
-  gateway.emit('frame', PUSH);
-  gateway.emit('frame', PUSH);
+  gateway.emit('frame', ON_648966_1);
   await tick();
-  assert.deepEqual(gladys.published, [[PUSH_FEATURE_ID, 1]]);
+  assert.deepEqual(gladys.published, [[PUSH_FEATURE_ID, 1], [L1_ID, 1]]);
 });
 
-test('a command on a toggle circuit sets the state, and the next press flips from it', async () => {
-  const gladys = fakeGladys({ config: { toggle_circuits: '10383457' } });
-  const { gateway } = await setup({ gladys });
-  const device = { external_id: 'ext:sel:light:648966-1' };
-  await gladys.handlers.setValue(device, { external_id: PUSH_FEATURE_ID }, 1); // Gladys: on
-  gateway.emit('frame', PUSH); // the wall button then turns it off
+test('a linked light unknown so far is remembered and saved', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-2' } });
+  // the source is already known, so the target is the only new circuit
+  const storage = fakeStorage({ saved: { version: 2, circuits: [{ legrandId: 648966, unit: 1 }], scenarios: [] } });
+  const { gateway } = await setup({ gladys, storage });
+  gateway.emit('frame', ON_648966_1);
   await tick();
-  assert.deepEqual(gladys.published, [
-    [PUSH_FEATURE_ID, 1],
-    [PUSH_FEATURE_ID, 0],
-  ]);
+  assert.equal(storage.writes.length, 1);
+  const saved = storage.writes[0].circuits.map((c) => `${c.legrandId}-${c.unit}`).sort();
+  assert.deepEqual(saved, ['648966-1', '944559-2']);
+});
+
+test('linked lights are logged with the source', async () => {
+  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-1' } });
+  const { gateway, logger } = await setup({ gladys });
+  gateway.emit('frame', ON_648966_1);
+  await tick();
+  const lines = logger.logs.info.map((args) => args.join(' '));
+  assert.ok(lines.some((line) => line.includes('Linked light 944559-1 is now on (from 648966-1)')), lines.join('\n'));
 });
 
 test('a failing publish for a light does not silence the warning for a scenario', async () => {

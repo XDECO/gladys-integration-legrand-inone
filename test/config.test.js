@@ -3,28 +3,27 @@ import assert from 'node:assert/strict';
 import {
   normalizeConfig,
   sameGateway,
-  parseAddressList,
-  keysFromAddresses,
+  parseLinks,
   DEFAULT_HOST,
   DEFAULT_PORT,
 } from '../src/config.js';
 
 test('defaults when nothing is configured', () => {
-  assert.deepEqual(normalizeConfig(), { host: DEFAULT_HOST, port: DEFAULT_PORT, toggleAddresses: [] });
-  assert.deepEqual(normalizeConfig({}), { host: '172.17.0.1', port: 2000, toggleAddresses: [] });
-  assert.deepEqual(normalizeConfig(null), { host: '172.17.0.1', port: 2000, toggleAddresses: [] });
+  assert.deepEqual(normalizeConfig(), { host: DEFAULT_HOST, port: DEFAULT_PORT, links: new Map() });
+  assert.deepEqual(normalizeConfig({}), { host: '172.17.0.1', port: 2000, links: new Map() });
+  assert.deepEqual(normalizeConfig(null), { host: '172.17.0.1', port: 2000, links: new Map() });
 });
 
 test('valid values are kept, the host is trimmed', () => {
   assert.deepEqual(normalizeConfig({ host: '  192.168.1.5 ', port: 4001 }), {
     host: '192.168.1.5',
     port: 4001,
-    toggleAddresses: [],
+    links: new Map(),
   });
   assert.deepEqual(normalizeConfig({ host: 'legrand-serial', port: '2000' }), {
     host: 'legrand-serial',
     port: 2000,
-    toggleAddresses: [],
+    links: new Map(),
   });
 });
 
@@ -48,23 +47,36 @@ test('sameGateway compares host and port', () => {
   assert.equal(sameGateway(a, undefined), false);
 });
 
-test('toggle addresses are read from the settings text', () => {
-  assert.deepEqual(normalizeConfig({ toggle_circuits: '10383457, 15112946' }).toggleAddresses, [10383457, 15112946]);
-  assert.deepEqual(normalizeConfig({ toggle_circuits: 42 }).toggleAddresses, []);
+test('links are read from the settings text', () => {
+  const links = normalizeConfig({ links: '648966-1 -> 944559-1, 944559-2' }).links;
+  assert.deepEqual([...links], [['648966-1', [{ key: '944559-1', on: null }, { key: '944559-2', on: null }]]]);
+  assert.equal(normalizeConfig({ links: 42 }).links.size, 0);
 });
 
-test('parseAddressList accepts any usual separator and skips what is not an address', () => {
-  assert.deepEqual(parseAddressList('1, 2;3 4\n5\t6'), [1, 2, 3, 4, 5, 6]);
-  assert.deepEqual(parseAddressList(' 10383457 '), [10383457]);
-  assert.deepEqual(parseAddressList('abc, 12x, -5, 1.5, 7'), [7]);
-  assert.deepEqual(parseAddressList('5, 5, 6, 5'), [5, 6]);
-  assert.deepEqual(parseAddressList('99999999999999999999'), []);
-  for (const bad of ['', '   ', ',,,', null, undefined, 12, {}]) {
-    assert.deepEqual(parseAddressList(bad), [], String(bad));
-  }
+test('parseLinks reads several rules, fixed states and both arrow styles', () => {
+  const links = parseLinks('648966-1 -> 944559-1; 648966-2 > 944559-1=on, 944559-2=OFF\n648966-3 -> 944559-2=1 944559-1=0');
+  assert.deepEqual(links.get('648966-1'), [{ key: '944559-1', on: null }]);
+  assert.deepEqual(links.get('648966-2'), [{ key: '944559-1', on: true }, { key: '944559-2', on: false }]);
+  assert.deepEqual(links.get('648966-3'), [{ key: '944559-2', on: true }, { key: '944559-1', on: false }]);
 });
 
-test('keysFromAddresses turns addresses into circuit keys', () => {
-  assert.deepEqual(keysFromAddresses([10383457, 15112946, 15112945]), ['648966-1', '944559-2', '944559-1']);
-  assert.deepEqual(keysFromAddresses([]), []);
+test('parseLinks reads the fixed state whatever the case', () => {
+  assert.deepEqual(parseLinks('1-1 -> 2-1=ON, 2-2=Off').get('1-1'), [{ key: '2-1', on: true }, { key: '2-2', on: false }]);
+});
+
+test('parseLinks skips what is not valid and never throws', () => {
+  assert.equal(parseLinks('').size, 0);
+  assert.equal(parseLinks(undefined).size, 0);
+  assert.equal(parseLinks('nonsense').size, 0);
+  assert.equal(parseLinks('648966-1 ->').size, 0); // no target
+  assert.equal(parseLinks('648966-1 -> abc').size, 0);
+  assert.equal(parseLinks('648966-16 -> 944559-1').size, 0); // unit out of range (0..15)
+  assert.equal(parseLinks('648966-1 -> 944559-16').size, 0);
+  assert.equal(parseLinks('648966-1 -> 648966-1').size, 0); // a light cannot follow itself
+  assert.deepEqual(parseLinks('648966-1 -> abc, 944559-1, 944559-2=maybe').get('648966-1'), [{ key: '944559-1', on: null }]);
+});
+
+test('parseLinks merges rules of the same source and keeps the last state of a repeated target', () => {
+  const links = parseLinks('648966-2 -> 944559-1=on; 648966-2 -> 944559-2=off, 944559-1=off');
+  assert.deepEqual(links.get('648966-2'), [{ key: '944559-1', on: false }, { key: '944559-2', on: false }]);
 });

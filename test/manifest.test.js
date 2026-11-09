@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GladysIntegration, DEVICE_FEATURE_CATEGORIES, DEVICE_FEATURE_TYPES } from '@gladysassistant/integration-sdk';
-import { DEFAULT_HOST, DEFAULT_PORT } from '../src/config.js';
+import { DEFAULT_HOST, DEFAULT_PORT, parseLinks } from '../src/config.js';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const manifest = JSON.parse(read('gladys-assistant-integration.json'));
@@ -33,7 +33,7 @@ test('package.json pins the SDK version and the license', () => {
 
 test('config_schema fields are valid and match the code defaults', () => {
   const keys = manifest.config_schema.map((f) => f.key);
-  assert.deepEqual(keys, ['host', 'port', 'toggle_circuits']);
+  assert.deepEqual(keys, ['host', 'port', 'links']);
   for (const field of manifest.config_schema) {
     assert.match(field.key, /^[a-z0-9_]+$/);
     assert.ok(field.label.en, `${field.key} needs an English label`);
@@ -43,9 +43,10 @@ test('config_schema fields are valid and match the code defaults', () => {
   assert.equal(host.default, DEFAULT_HOST);
   assert.equal(port.default, DEFAULT_PORT);
   assert.equal(port.type, 'number');
-  const toggles = manifest.config_schema.find((f) => f.key === 'toggle_circuits');
-  assert.equal(toggles.type, 'string');
-  assert.ok(!toggles.required, 'the toggle list is optional');
+  const links = manifest.config_schema.find((f) => f.key === 'links');
+  assert.equal(links.type, 'string');
+  assert.ok(!links.required, 'the links are optional');
+  assert.ok(parseLinks(links.placeholder.en).size > 0, 'the placeholder is a valid example');
   assert.ok(port.default >= port.min && port.default <= port.max);
 });
 

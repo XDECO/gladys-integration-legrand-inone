@@ -7,9 +7,8 @@
  *
  * The bus never says what a receiver is doing, so the state of a light is
  * deduced:
- *   - a normal circuit sends "on" and "off" frames: the state is the frame;
- *   - a toggle circuit (a push button) always sends "on": each frame flips the
- *     assumed state. The user lists those circuits in the settings.
+ *   - a light circuit sends "on" and "off" frames: the state is the frame.
+ *   Receivers driven by another circuit are linked in the settings (see config.js).
  *
  * A scenario frame never carries a lamp state. A scenario is exposed as a
  * button: it "clicks" when the first frame ("action") arrives. The second one
@@ -43,17 +42,6 @@ export class CircuitRegistry {
   #lights = new Map();
   /** @type {Map<string, Circuit>} */
   #scenarios = new Map();
-  /** @type {Set<string>} */
-  #toggleKeys = new Set();
-
-  /** Circuits whose "on" frame flips the state. Replaces the previous list. */
-  setToggleKeys(keys) {
-    this.#toggleKeys = new Set(keys);
-  }
-
-  isToggle(key) {
-    return this.#toggleKeys.has(key);
-  }
 
   /**
    * Learn from a parsed frame. Returns null when the frame is not usable.
@@ -83,20 +71,7 @@ export class CircuitRegistry {
   }
 
   #observeLight(legrandId, unit, on, now) {
-    const key = circuitKey(legrandId, unit);
-    let state = on;
-    if (this.#toggleKeys.has(key)) {
-      const previous = this.#lights.get(key);
-      if (!on) {
-        // A push button: "off" is only the release of the button, the receiver
-        // does not move. The assumed state is kept as it is.
-        const observation = this.#record(legrandId, unit, previous ? previous.on : false, now);
-        return { ...observation, changed: false };
-      }
-      // "on" only means "pressed": the receiver changes side.
-      state = !(previous && previous.on === true);
-    }
-    return this.#record(legrandId, unit, state, now);
+    return this.#record(legrandId, unit, on, now);
   }
 
   #record(legrandId, unit, on, now) {

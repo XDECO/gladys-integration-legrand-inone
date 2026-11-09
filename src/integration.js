@@ -5,6 +5,7 @@
  *   bus frame ──► registry ──► gladys.publishState        (state feedback)
  *   Gladys scan ──► registry ──► gladys.publishDiscoveredDevices
  *   Gladys command ──► gateway.setLight ──► registry ──► gladys.publishState
+ *   a light or a scenario ──► its linked lights (settings) ──► gladys.publishState
  *
  * Everything that touches the outside world (SDK, gateway, disk, clock) is
  * injected, so the whole thing is tested without Gladys, a network or a bus.
@@ -17,7 +18,7 @@
  */
 
 import { circuitFromDevice } from './circuits.js';
-import { keysFromAddresses, normalizeConfig, sameGateway } from './config.js';
+import { normalizeConfig, sameGateway } from './config.js';
 import { addressFromIdUnit } from './protocol.js';
 
 const LIGHT_TYPE = 'light';
@@ -83,7 +84,7 @@ export class LegrandIntegration {
       this.logger.warn('Could not read the configuration, using defaults', error);
     }
     const config = normalizeConfig(raw);
-    this.#applyToggles(config);
+    this.links = config.links;
     this.#openGateway(config);
   }
 
@@ -120,6 +121,7 @@ export class LegrandIntegration {
     const { isNew } = this.registry.setState(circuit.legrandId, circuit.unit, on, this.now());
     if (isNew) this.#save();
     await this.#publish(feature.external_id, on ? 1 : 0, `light:${circuit.key}`);
+    this.#propagate(circuit.key, on, true);
   }
 
   // ---- bus -> Gladys ------------------------------------------------------------
@@ -138,11 +140,39 @@ export class LegrandIntegration {
       this.logger.info(`Light ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)}) is now ${circuit.on ? 'on' : 'off'} (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
       void this.#publish(ids.feature(LIGHT_FEATURE), circuit.on ? 1 : 0, `light:${circuit.key}`);
+    }
+    if (kind === 'light') {
+      // Every frame is a chance to resync the linked lights, even without a change here.
+      this.#propagate(circuit.key, circuit.on, true);
     } else if (kind === 'scenario' && triggered) {
       // A button click is an event: it is published every time, not only on change.
       this.logger.info(`Scenario ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)}) clicked (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
       void this.#publish(ids.feature(SCENARIO_FEATURE), 1, `scenario:${circuit.key}`);
+      this.#propagate(circuit.key, null, false);
+    }
+  }
+
+  /**
+   * Copy a state onto the lights linked to a source, in Gladys only: nothing is
+   * written to the bus. One level only, so links can never loop.
+   * @param {string} sourceKey
+   * @param {boolean|null} sourceOn  state of a light source, null for a scenario
+   * @param {boolean} mirror         true: targets copy sourceOn; false: they take their own fixed state
+   */
+  #propagate(sourceKey, sourceOn, mirror) {
+    const targets = this.links.get(sourceKey);
+    if (!targets) return;
+    for (const target of targets) {
+      const on = mirror ? sourceOn : target.on;
+      if (on === null || on === undefined) continue;
+      const [legrandId, unit] = target.key.split('-').map(Number);
+      const { isNew, changed } = this.registry.setState(legrandId, unit, on, this.now());
+      if (isNew) this.#save();
+      if (!changed) continue;
+      this.logger.info(`Linked light ${target.key} is now ${on ? 'on' : 'off'} (from ${sourceKey})`);
+      const ids = this.gladys.externalIds(LIGHT_TYPE, target.key);
+      void this.#publish(ids.feature(LIGHT_FEATURE), on ? 1 : 0, `light:${target.key}`);
     }
   }
 
@@ -227,17 +257,13 @@ export class LegrandIntegration {
 
   async #onConfigUpdated(raw) {
     const next = normalizeConfig(raw);
-    this.#applyToggles(next);
+    this.links = next.links;
     if (sameGateway(this.config, next)) {
       this.config = next;
       return;
     }
     this.logger.info(`Gateway settings changed: ${next.host}:${next.port}`);
     this.#openGateway(next);
-  }
-
-  #applyToggles(config) {
-    this.registry.setToggleKeys(keysFromAddresses(config.toggleAddresses));
   }
 
   #openGateway(config) {

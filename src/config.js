@@ -3,43 +3,59 @@
  * module turns the raw values into safe ones, whatever Gladys sends.
  */
 
-import { circuitKey, idUnitFromAddress } from './protocol.js';
+import { circuitKey, MAX_UNIT } from './protocol.js';
 
 export const DEFAULT_HOST = '172.17.0.1';
 export const DEFAULT_PORT = 2000;
 
 /**
- * Read a list of bus addresses typed by the user ("10383457, 15112946").
- * Separators can be commas, semicolons, spaces or new lines. Anything that is
- * not a valid address is skipped. Duplicates are removed, order is kept.
+ * Read the "linked devices" setting. One rule per line (or separated by ";"):
+ *
+ *   648966-1 -> 944559-1, 944559-2        the targets copy the state of the source
+ *   648966-2 -> 944559-1=on, 944559-2=off a scenario button sets fixed states
+ *
+ * Keys are the ones printed in the logs ("944559-1"). For a light source the
+ * "=on" / "=off" part is ignored; for a scenario source a target without it
+ * is skipped. Invalid rules or targets are skipped, never thrown.
  * @param {unknown} raw
- * @returns {number[]}
+ * @returns {Map<string, {key: string, on: boolean|null}[]>} source key -> targets
  */
-export function parseAddressList(raw) {
-  if (typeof raw !== 'string') return [];
-  const seen = new Set();
-  const result = [];
-  for (const token of raw.split(/[\s,;]+/)) {
-    if (!/^\d+$/.test(token)) continue;
-    const address = Number(token);
-    if (!Number.isSafeInteger(address) || seen.has(address)) continue;
-    seen.add(address);
-    result.push(address);
+export function parseLinks(raw) {
+  const links = new Map();
+  if (typeof raw !== 'string') return links;
+
+  for (const rule of raw.split(/[;\n]+/)) {
+    const match = /^\s*(\d+-\d+)\s*-?>\s*(.+?)\s*$/.exec(rule);
+    if (!match) continue;
+    const source = parseKey(match[1]);
+    if (!source) continue;
+
+    const targets = links.get(source) || [];
+    for (const token of match[2].split(/[,\s]+/)) {
+      const target = /^(\d+-\d+)(?:=(on|off|1|0))?$/i.exec(token);
+      if (!target) continue;
+      const key = parseKey(target[1]);
+      if (!key || key === source) continue;
+      const on = target[2] === undefined ? null : ['on', '1'].includes(target[2].toLowerCase());
+      const existing = targets.findIndex((item) => item.key === key);
+      if (existing >= 0) targets[existing] = { key, on };
+      else targets.push({ key, on });
+    }
+    if (targets.length > 0) links.set(source, targets);
   }
-  return result;
+  return links;
 }
 
-/** Circuit keys ("944559-1") of a list of addresses. */
-export function keysFromAddresses(addresses) {
-  return addresses.map((address) => {
-    const { legrandId, unit } = idUnitFromAddress(address);
-    return circuitKey(legrandId, unit);
-  });
+/** "944559-1" -> the same key when the numbers are valid, else null. */
+function parseKey(text) {
+  const [id, unit] = text.split('-').map(Number);
+  if (!Number.isSafeInteger(id) || !Number.isInteger(unit) || unit < 0 || unit > MAX_UNIT) return null;
+  return circuitKey(id, unit);
 }
 
 /**
  * @param {Record<string, unknown>} [raw] values from gladys.getConfig()
- * @returns {{ host: string, port: number, toggleAddresses: number[] }}
+ * @returns {{ host: string, port: number, links: Map<string, {key: string, on: boolean|null}[]> }}
  */
 export function normalizeConfig(raw = {}) {
   const config = raw && typeof raw === 'object' ? raw : {};
@@ -52,7 +68,7 @@ export function normalizeConfig(raw = {}) {
   return {
     host: host === '' ? DEFAULT_HOST : host,
     port: validPort ? port : DEFAULT_PORT,
-    toggleAddresses: parseAddressList(config.toggle_circuits),
+    links: parseLinks(config.links),
   };
 }
 

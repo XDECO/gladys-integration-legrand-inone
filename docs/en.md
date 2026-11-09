@@ -22,12 +22,22 @@ If a switch does not appear, press it again and rescan. The list of known circui
 - Updates the state in Gladys when a wall switch is used.
 - Shows each Legrand scenario button as a button in Gladys (`Legrand scenario <id>-<unit>`). It clicks when the scenario is pressed, so you can use it as a trigger in Gladys scenes.
 
-## Push buttons that toggle
+## Linked devices
 
-Some wall buttons send the same "on" frame every time they are pressed, while the receiver switches on and off alternately. The bus does not tell the real state, so list these circuits in the setting **Toggle push buttons**, using the numbers seen in the logs (for example `10383457, 15112946`). Each press then flips the state shown in Gladys.
+The bus never reports the state of a receiver. When a button drives several lights (a group, a scenario), only the button sends a frame and the lights stay silent. The setting **Linked devices** tells the integration which lights follow which button. Nothing is sent on the bus: only the state shown in Gladys is updated.
+
+Use the circuit numbers printed in the logs (`944559-1`). One rule per line, or separated by `;`:
+
+```
+648966-1 -> 944559-1, 944559-2
+648966-2 -> 944559-1=on, 944559-2=off
+```
+
+- With a light on the left, the lights on the right copy its state (on, off), whether it comes from a wall switch or from a command in Gladys.
+- With a scenario button on the left, each light on the right takes the fixed state written after `=` (`on` or `off`).
 
 ## Limits of this version
 
 - The bus never reports the real state of a receiver. The state shown in Gladys is deduced from the frames and from the commands sent, so it can drift (for example after a Legrand scenario that switches lights off). A command from Gladys always puts it back in line.
-- To keep Gladys up to date after a Legrand scenario, create a Gladys scene triggered by the scenario button that sets the concerned lights to their new state.
+- To keep Gladys up to date after a Legrand scenario, use linked devices (rule `scenario -> light=on`).
 - On/off lights only: no dimmers, no shutters, and Gladys cannot start a Legrand scenario.
