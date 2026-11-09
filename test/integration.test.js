@@ -155,6 +155,15 @@ test('a frame from a new circuit is published, remembered and saved', async () =
   assert.deepEqual(storage.writes, [{ version: 2, circuits: [{ legrandId: 944559, unit: 1 }], scenarios: [] }]);
 });
 
+test('the log tells the bus address to type in the push button setting', async () => {
+  const { gateway, logger } = await setup();
+  gateway.emit('frame', ON); // 944559-1 = address 15112945
+  await tick();
+  const lines = logger.logs.info.map((args) => args.join(' '));
+  assert.ok(lines.some((line) => line.includes('New light seen on the bus: 944559-1 (address 15112945)')), lines.join('\n'));
+  assert.ok(lines.some((line) => line.includes('Light 944559-1 (address 15112945) is now on')), lines.join('\n'));
+});
+
 test('only changes are published, and off is published as 0', async () => {
   const { gladys, gateway } = await setup();
   gateway.emit('frame', ON);

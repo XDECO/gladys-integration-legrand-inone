@@ -178,12 +178,46 @@ test('without the toggle setting the same frames never change the state', () => 
   assert.equal(again.changed, false);
 });
 
-test('an explicit "off" frame on a toggle circuit still means off', () => {
+const RELEASE = parseFrame('*1*0*0#10383457##');
+
+test('an "off" frame on a toggle circuit is a release: the assumed state is kept', () => {
   const registry = new CircuitRegistry();
   registry.setToggleKeys(['648966-1']);
+  registry.observe(PUSH, 1); // pressed: on
+  const release = registry.observe(RELEASE, 2);
+  assert.equal(release.circuit.on, true);
+  assert.equal(release.changed, false);
+  // the next press flips from "on" to "off", as the receiver does
+  const next = registry.observe(PUSH, 3);
+  assert.equal(next.circuit.on, false);
+  assert.equal(next.changed, true);
+});
+
+test('a release does not hide the following press when the lamp is off', () => {
+  const registry = new CircuitRegistry();
+  registry.setToggleKeys(['648966-1']);
+  registry.observe(PUSH, 1); // on
+  registry.observe(PUSH, 2); // off
+  assert.equal(registry.observe(RELEASE, 3).changed, false);
+  assert.equal(registry.get('648966-1').on, false);
+  assert.equal(registry.observe(PUSH, 4).circuit.on, true);
+});
+
+test('a first frame that is a release registers the circuit without a state change', () => {
+  const registry = new CircuitRegistry();
+  registry.setToggleKeys(['648966-1']);
+  const release = registry.observe(RELEASE, 1);
+  assert.equal(release.isNew, true);
+  assert.equal(release.changed, false);
+  assert.equal(registry.observe(PUSH, 2).circuit.on, true);
+});
+
+test('without the toggle setting an "off" frame still means off', () => {
+  const registry = new CircuitRegistry();
   registry.observe(PUSH, 1);
-  assert.equal(registry.observe(parseFrame('*1*0*0#10383457##'), 2).circuit.on, false);
-  assert.equal(registry.observe(PUSH, 3).circuit.on, true);
+  const off = registry.observe(RELEASE, 2);
+  assert.equal(off.circuit.on, false);
+  assert.equal(off.changed, true);
 });
 
 test('a toggle circuit follows a state set by a command from Gladys', () => {

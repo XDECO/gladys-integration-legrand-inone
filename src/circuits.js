@@ -85,9 +85,15 @@ export class CircuitRegistry {
   #observeLight(legrandId, unit, on, now) {
     const key = circuitKey(legrandId, unit);
     let state = on;
-    if (on && this.#toggleKeys.has(key)) {
-      // A push button: "on" only means "pressed", the receiver changes side.
+    if (this.#toggleKeys.has(key)) {
       const previous = this.#lights.get(key);
+      if (!on) {
+        // A push button: "off" is only the release of the button, the receiver
+        // does not move. The assumed state is kept as it is.
+        const observation = this.#record(legrandId, unit, previous ? previous.on : false, now);
+        return { ...observation, changed: false };
+      }
+      // "on" only means "pressed": the receiver changes side.
       state = !(previous && previous.on === true);
     }
     return this.#record(legrandId, unit, state, now);

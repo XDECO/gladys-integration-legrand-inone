@@ -18,6 +18,7 @@
 
 import { circuitFromDevice } from './circuits.js';
 import { keysFromAddresses, normalizeConfig, sameGateway } from './config.js';
+import { addressFromIdUnit } from './protocol.js';
 
 const LIGHT_TYPE = 'light';
 const LIGHT_FEATURE = 'binary';
@@ -129,17 +130,17 @@ export class LegrandIntegration {
 
     const { kind, circuit, isNew, changed, triggered } = observation;
     if (isNew) {
-      this.logger.info(`New ${kind} seen on the bus: ${circuit.key}`);
+      this.logger.info(`New ${kind} seen on the bus: ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)})`);
       this.#save();
     }
 
     if (kind === 'light' && changed) {
-      this.logger.info(`Light ${circuit.key} is now ${circuit.on ? 'on' : 'off'} (frame ${frame.raw})`);
+      this.logger.info(`Light ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)}) is now ${circuit.on ? 'on' : 'off'} (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
       void this.#publish(ids.feature(LIGHT_FEATURE), circuit.on ? 1 : 0, `light:${circuit.key}`);
     } else if (kind === 'scenario' && triggered) {
       // A button click is an event: it is published every time, not only on change.
-      this.logger.info(`Scenario ${circuit.key} clicked (frame ${frame.raw})`);
+      this.logger.info(`Scenario ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)}) clicked (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
       void this.#publish(ids.feature(SCENARIO_FEATURE), 1, `scenario:${circuit.key}`);
     }
