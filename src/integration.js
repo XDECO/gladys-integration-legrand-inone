@@ -17,10 +17,12 @@
  */
 
 import { circuitFromDevice } from './circuits.js';
-import { normalizeConfig, sameGateway } from './config.js';
+import { keysFromAddresses, normalizeConfig, sameGateway } from './config.js';
 
-const DEVICE_TYPE = 'light';
-const FEATURE_KEY = 'binary';
+const LIGHT_TYPE = 'light';
+const LIGHT_FEATURE = 'binary';
+const SCENARIO_TYPE = 'scenario';
+const SCENARIO_FEATURE = 'click';
 
 const MESSAGES = {
   gatewayDown: (config) => ({
@@ -36,7 +38,8 @@ export class LegrandIntegration {
    * @param {(config: {host:string, port:number}) => Object} deps.createGateway
    * @param {import('./circuits.js').CircuitRegistry} deps.registry
    * @param {{read: () => Promise<unknown>, write: (data: unknown) => Promise<void>}} deps.storage
-   * @param {{category: string, type: string}} deps.constants SDK values for a binary light
+   * @param {{light: {category: string, type: string}, scenario: {category: string, type: string}}} deps.constants
+   *        SDK values for a binary light and for a button that clicks
    * @param {{info: Function, warn: Function, error: Function, debug: Function}} deps.logger
    * @param {() => number} [deps.now]
    */
@@ -78,7 +81,9 @@ export class LegrandIntegration {
     } catch (error) {
       this.logger.warn('Could not read the configuration, using defaults', error);
     }
-    this.#openGateway(normalizeConfig(raw));
+    const config = normalizeConfig(raw);
+    this.#applyToggles(config);
+    this.#openGateway(config);
   }
 
   /** Close the gateway and wait for the last save. */
@@ -93,6 +98,9 @@ export class LegrandIntegration {
     const circuit = circuitFromDevice(device);
     if (!circuit) {
       throw new Error(`Cannot find the circuit of device ${device && device.external_id}`);
+    }
+    if (String(device.external_id).includes(`:${SCENARIO_TYPE}:`)) {
+      throw new Error('A scenario button cannot be commanded from Gladys');
     }
     if (value !== 0 && value !== 1) {
       throw new Error(`Unsupported value ${value}: a light only accepts 0 or 1`);
@@ -110,7 +118,7 @@ export class LegrandIntegration {
     // soon as the frame is written. A later frame from the switch corrects it.
     const { isNew } = this.registry.setState(circuit.legrandId, circuit.unit, on, this.now());
     if (isNew) this.#save();
-    await this.#publish(feature.external_id, on ? 1 : 0, circuit.key);
+    await this.#publish(feature.external_id, on ? 1 : 0, `light:${circuit.key}`);
   }
 
   // ---- bus -> Gladys ------------------------------------------------------------
@@ -119,14 +127,19 @@ export class LegrandIntegration {
     const observation = this.registry.observe(frame, this.now());
     if (!observation) return;
 
-    const { circuit, isNew, changed } = observation;
+    const { kind, circuit, isNew, changed, triggered } = observation;
     if (isNew) {
-      this.logger.info(`New circuit seen on the bus: ${circuit.key}`);
+      this.logger.info(`New ${kind} seen on the bus: ${circuit.key}`);
       this.#save();
     }
-    if (changed) {
-      const ids = this.gladys.externalIds(DEVICE_TYPE, circuit.key);
-      void this.#publish(ids.feature(FEATURE_KEY), circuit.on ? 1 : 0, circuit.key);
+
+    if (kind === 'light' && changed) {
+      const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
+      void this.#publish(ids.feature(LIGHT_FEATURE), circuit.on ? 1 : 0, `light:${circuit.key}`);
+    } else if (kind === 'scenario' && triggered) {
+      // A button click is an event: it is published every time, not only on change.
+      const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
+      void this.#publish(ids.feature(SCENARIO_FEATURE), 1, `scenario:${circuit.key}`);
     }
   }
 
@@ -145,16 +158,19 @@ export class LegrandIntegration {
   // ---- discovery ----------------------------------------------------------------
 
   async #onScan() {
-    const devices = this.registry.list().map((circuit) => this.buildDevice(circuit));
+    const devices = [
+      ...this.registry.list().map((circuit) => this.buildDevice(circuit)),
+      ...this.registry.listScenarios().map((circuit) => this.buildScenarioDevice(circuit)),
+    ];
     if (devices.length === 0) {
       this.logger.info('Scan: no circuit known yet. Press the switches, then scan again.');
     }
     await this.gladys.publishDiscoveredDevices(devices);
   }
 
-  /** Gladys device description of one circuit. */
+  /** Gladys device description of one light circuit. */
   buildDevice(circuit) {
-    const ids = this.gladys.externalIds(DEVICE_TYPE, circuit.key);
+    const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
     return {
       name: `Legrand ${circuit.key}`,
       external_id: ids.device,
@@ -165,9 +181,9 @@ export class LegrandIntegration {
       features: [
         {
           name: 'On/Off',
-          external_id: ids.feature(FEATURE_KEY),
-          category: this.constants.category,
-          type: this.constants.type,
+          external_id: ids.feature(LIGHT_FEATURE),
+          category: this.constants.light.category,
+          type: this.constants.light.type,
           min: 0,
           max: 1,
           read_only: false,
@@ -178,13 +194,47 @@ export class LegrandIntegration {
     };
   }
 
+  /** Gladys device description of one scenario: a button that clicks. */
+  buildScenarioDevice(circuit) {
+    const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
+    return {
+      name: `Legrand scenario ${circuit.key}`,
+      external_id: ids.device,
+      params: [
+        { name: 'LEGRAND_ID', value: String(circuit.legrandId) },
+        { name: 'UNIT', value: String(circuit.unit) },
+      ],
+      features: [
+        {
+          name: 'Scenario button',
+          external_id: ids.feature(SCENARIO_FEATURE),
+          category: this.constants.scenario.category,
+          type: this.constants.scenario.type,
+          min: 0,
+          max: 1,
+          read_only: true,
+          has_feedback: false,
+          keep_history: false,
+        },
+      ],
+    };
+  }
+
   // ---- settings and gateway lifecycle ------------------------------------------
 
   async #onConfigUpdated(raw) {
     const next = normalizeConfig(raw);
-    if (sameGateway(this.config, next)) return;
+    this.#applyToggles(next);
+    if (sameGateway(this.config, next)) {
+      this.config = next;
+      return;
+    }
     this.logger.info(`Gateway settings changed: ${next.host}:${next.port}`);
     this.#openGateway(next);
+  }
+
+  #applyToggles(config) {
+    this.registry.setToggleKeys(keysFromAddresses(config.toggleAddresses));
   }
 
   #openGateway(config) {

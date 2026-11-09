@@ -6,27 +6,51 @@
     "en": "Control Legrand In One (PLC) lights through the 882 13 USB serial interface",
     "fr": "Pilotez vos éclairages Legrand In One (CPL) via l'interface USB série 882 13"
   },
-  "version": "0.1.0",
-  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.1.0",
+  "version": "0.2.0",
+  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.2.0",
   "gladys_version": ">=4.86.0",
-  "categories": ["lighting"],
+  "categories": [
+    "lighting"
+  ],
   "config_schema": [
     {
       "key": "host",
       "type": "string",
-      "label": { "en": "Serial gateway address", "fr": "Adresse de la passerelle série" },
-      "placeholder": { "en": "172.17.0.1", "fr": "172.17.0.1" },
+      "label": {
+        "en": "Serial gateway address",
+        "fr": "Adresse de la passerelle série"
+      },
+      "placeholder": {
+        "en": "172.17.0.1",
+        "fr": "172.17.0.1"
+      },
       "default": "172.17.0.1",
       "required": true
     },
     {
       "key": "port",
       "type": "number",
-      "label": { "en": "Serial gateway TCP port", "fr": "Port TCP de la passerelle série" },
+      "label": {
+        "en": "Serial gateway TCP port",
+        "fr": "Port TCP de la passerelle série"
+      },
       "default": 2000,
       "min": 1,
       "max": 65535,
       "required": true
+    },
+    {
+      "key": "toggle_circuits",
+      "type": "string",
+      "label": {
+        "en": "Toggle push buttons (addresses, comma separated)",
+        "fr": "Boutons poussoirs à bascule (adresses séparées par des virgules)"
+      },
+      "placeholder": {
+        "en": "10383457, 15112946",
+        "fr": "10383457, 15112946"
+      },
+      "default": ""
     }
   ]
 }

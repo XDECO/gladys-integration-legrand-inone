@@ -20,8 +20,14 @@ Si un interrupteur n'apparaît pas, appuyez dessus de nouveau et relancez la rec
 
 - Allume et éteint les lumières depuis Gladys (tableau de bord, scènes, voix).
 - Met à jour l'état dans Gladys quand un interrupteur mural est utilisé.
+- Affiche chaque bouton de scénario Legrand comme un bouton dans Gladys (`Legrand scenario <id>-<unité>`). Il « clique » quand le scénario est lancé : vous pouvez l'utiliser comme déclencheur dans les scènes Gladys.
+
+## Boutons poussoirs à bascule
+
+Certains boutons muraux envoient la même trame « allumer » à chaque appui, alors que le récepteur s'allume et s'éteint en alternance. Le bus ne dit pas l'état réel : listez ces circuits dans le réglage **Boutons poussoirs à bascule**, avec les numéros vus dans les journaux (par exemple `10383457, 15112946`). Chaque appui inverse alors l'état affiché dans Gladys.
 
 ## Limites de cette version
 
-- Lumières tout ou rien uniquement : pas de variateurs, pas de volets, pas de scénarios Legrand.
-- Le bus n'accuse pas réception des commandes. Après une commande, Gladys affiche l'état demandé ; le prochain appui sur un interrupteur mural le corrige si la lumière n'a pas suivi.
+- Le bus ne signale jamais l'état réel d'un récepteur. L'état affiché dans Gladys est déduit des trames et des commandes envoyées : il peut se décaler (par exemple après un scénario Legrand qui éteint des lampes). Une commande depuis Gladys le remet toujours d'accord.
+- Pour tenir Gladys à jour après un scénario Legrand, créez une scène Gladys déclenchée par le bouton du scénario, qui met les lampes concernées dans leur nouvel état.
+- Lumières tout ou rien uniquement : pas de variateurs, pas de volets, et Gladys ne peut pas lancer un scénario Legrand.

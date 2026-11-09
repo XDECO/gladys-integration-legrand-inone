@@ -33,7 +33,7 @@ test('package.json pins the SDK version and the license', () => {
 
 test('config_schema fields are valid and match the code defaults', () => {
   const keys = manifest.config_schema.map((f) => f.key);
-  assert.deepEqual(keys, ['host', 'port']);
+  assert.deepEqual(keys, ['host', 'port', 'toggle_circuits']);
   for (const field of manifest.config_schema) {
     assert.match(field.key, /^[a-z0-9_]+$/);
     assert.ok(field.label.en, `${field.key} needs an English label`);
@@ -43,6 +43,9 @@ test('config_schema fields are valid and match the code defaults', () => {
   assert.equal(host.default, DEFAULT_HOST);
   assert.equal(port.default, DEFAULT_PORT);
   assert.equal(port.type, 'number');
+  const toggles = manifest.config_schema.find((f) => f.key === 'toggle_circuits');
+  assert.equal(toggles.type, 'string');
+  assert.ok(!toggles.required, 'the toggle list is optional');
   assert.ok(port.default >= port.min && port.default <= port.max);
 });
 

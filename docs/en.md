@@ -20,8 +20,14 @@ If a switch does not appear, press it again and rescan. The list of known circui
 
 - Turns lights on and off from Gladys (dashboard, scenes, voice).
 - Updates the state in Gladys when a wall switch is used.
+- Shows each Legrand scenario button as a button in Gladys (`Legrand scenario <id>-<unit>`). It clicks when the scenario is pressed, so you can use it as a trigger in Gladys scenes.
+
+## Push buttons that toggle
+
+Some wall buttons send the same "on" frame every time they are pressed, while the receiver switches on and off alternately. The bus does not tell the real state, so list these circuits in the setting **Toggle push buttons**, using the numbers seen in the logs (for example `10383457, 15112946`). Each press then flips the state shown in Gladys.
 
 ## Limits of this version
 
-- On/off lights only: no dimmers, no shutters, no Legrand scenarios.
-- The bus does not acknowledge commands. After a command, Gladys shows the requested state; the next press on a wall switch corrects it if the light did not follow.
+- The bus never reports the real state of a receiver. The state shown in Gladys is deduced from the frames and from the commands sent, so it can drift (for example after a Legrand scenario that switches lights off). A command from Gladys always puts it back in line.
+- To keep Gladys up to date after a Legrand scenario, create a Gladys scene triggered by the scenario button that sets the concerned lights to their new state.
+- On/off lights only: no dimmers, no shutters, and Gladys cannot start a Legrand scenario.

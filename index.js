@@ -27,8 +27,14 @@ const integration = new LegrandIntegration({
   registry: new CircuitRegistry(),
   storage: new JsonStorage(path.join(DATA_DIR, 'circuits.json')),
   constants: {
-    category: DEVICE_FEATURE_CATEGORIES.LIGHT,
-    type: DEVICE_FEATURE_TYPES.LIGHT.BINARY,
+    light: {
+      category: DEVICE_FEATURE_CATEGORIES.LIGHT,
+      type: DEVICE_FEATURE_TYPES.LIGHT.BINARY,
+    },
+    scenario: {
+      category: DEVICE_FEATURE_CATEGORIES.BUTTON,
+      type: DEVICE_FEATURE_TYPES.BUTTON.CLICK,
+    },
   },
   logger,
 });
