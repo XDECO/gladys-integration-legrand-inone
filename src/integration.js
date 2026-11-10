@@ -19,7 +19,7 @@
 
 import { circuitFromDevice } from './circuits.js';
 import { normalizeConfig, sameGateway } from './config.js';
-import { addressFromIdUnit, encodeLightCommand } from './protocol.js';
+import { addressFromIdUnit, circuitKey, encodeLightCommand } from './protocol.js';
 
 const LIGHT_TYPE = 'light';
 const LIGHT_FEATURE = 'binary';
@@ -129,7 +129,10 @@ export class LegrandIntegration {
 
   #onFrame(frame) {
     // Every frame is logged, even when nothing changes: it tells whether a press reached us.
-    if (frame && frame.raw) this.logger.info(`Frame received: ${frame.raw}`);
+    if (frame && frame.raw) {
+      const known = frame.type === 'command' && Number.isSafeInteger(frame.legrandId) && Number.isInteger(frame.unit);
+      this.logger.info(`Frame received: ${frame.raw}${known ? ` (${circuitKey(frame.legrandId, frame.unit)})` : ''}`);
+    }
     const observation = this.registry.observe(frame, this.now());
     if (!observation) return;
 

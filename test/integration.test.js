@@ -501,8 +501,11 @@ test('every frame received and every command sent is logged', async () => {
   gateway.emit('frame', ON); // nothing changes, but the press must show in the log
   await gladys.handlers.setValue({ external_id: 'ext:sel:light:944559-1' }, { external_id: FEATURE_ID }, 0);
   const lines = logger.logs.info.map((args) => args.join(' '));
-  assert.equal(lines.filter((line) => line === 'Frame received: *1*1*0#15112945##').length, 2, lines.join('\n'));
+  assert.equal(lines.filter((line) => line === 'Frame received: *1*1*0#15112945## (944559-1)').length, 2, lines.join('\n'));
   assert.ok(lines.includes('Sent *1*0*#15112945## (944559-1 off)'), lines.join('\n'));
+  // an acknowledgement has no circuit: it is logged as it is
+  gateway.emit('frame', parseFrame('*#*1##'));
+  assert.ok(logger.logs.info.map((args) => args.join(' ')).includes('Frame received: *#*1##'));
 });
 
 // ---- linked devices ------------------------------------------------------------------
