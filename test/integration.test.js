@@ -495,6 +495,16 @@ test('a scenario cannot be commanded from Gladys', async () => {
   assert.deepEqual(gateway.commands, []);
 });
 
+test('every frame received and every command sent is logged', async () => {
+  const { gladys, gateway, logger } = await setup();
+  gateway.emit('frame', ON);
+  gateway.emit('frame', ON); // nothing changes, but the press must show in the log
+  await gladys.handlers.setValue({ external_id: 'ext:sel:light:944559-1' }, { external_id: FEATURE_ID }, 0);
+  const lines = logger.logs.info.map((args) => args.join(' '));
+  assert.equal(lines.filter((line) => line === 'Frame received: *1*1*0#15112945##').length, 2, lines.join('\n'));
+  assert.ok(lines.includes('Sent *1*0*#15112945## (944559-1 off)'), lines.join('\n'));
+});
+
 // ---- linked devices ------------------------------------------------------------------
 
 const L2_ID = 'ext:sel:light:944559-2:binary'; // second light of 944559

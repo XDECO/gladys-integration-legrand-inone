@@ -19,7 +19,7 @@
 
 import { circuitFromDevice } from './circuits.js';
 import { normalizeConfig, sameGateway } from './config.js';
-import { addressFromIdUnit } from './protocol.js';
+import { addressFromIdUnit, encodeLightCommand } from './protocol.js';
 
 const LIGHT_TYPE = 'light';
 const LIGHT_FEATURE = 'binary';
@@ -115,6 +115,7 @@ export class LegrandIntegration {
     // Throws (NOT_CONNECTED, QUEUE_FULL...) when the command cannot be written:
     // Gladys then reports the failure instead of showing a light that did not move.
     await this.gateway.setLight({ legrandId: circuit.legrandId, unit: circuit.unit, on });
+    this.logger.info(`Sent ${encodeLightCommand({ legrandId: circuit.legrandId, unit: circuit.unit, on })} (${circuit.key} ${on ? 'on' : 'off'})`);
 
     // The bus gives no acknowledgement, so the requested state is published as
     // soon as the frame is written. A later frame from the switch corrects it.
@@ -127,6 +128,8 @@ export class LegrandIntegration {
   // ---- bus -> Gladys ------------------------------------------------------------
 
   #onFrame(frame) {
+    // Every frame is logged, even when nothing changes: it tells whether a press reached us.
+    if (frame && frame.raw) this.logger.info(`Frame received: ${frame.raw}`);
     const observation = this.registry.observe(frame, this.now());
     if (!observation) return;
 
