@@ -24,9 +24,9 @@ If a switch does not appear, press it again and rescan. The list of known circui
 
 ## Linked devices
 
-The bus never reports the state of a receiver. When a button drives several lights (a group, a scenario), only the button sends a frame and the lights stay silent. The setting **Linked devices** tells the integration which lights follow which button. Nothing is sent on the bus: only the state shown in Gladys is updated.
+The bus never reports the state of a receiver. When a button drives several lights (a group, a scenario), only the button sends a frame and the lights stay silent. The settings **Rule 1** to **Rule 6** (one rule per field) tell the integration which lights follow which button. Nothing is sent on the bus: only the state shown in Gladys is updated.
 
-Use the circuit numbers printed in the logs (`944559-1`). One rule per line, or separated by `;`:
+Use the circuit numbers printed in the logs (`944559-1`). One rule per field:
 
 ```
 648966-1 -> 944559-1, 944559-2

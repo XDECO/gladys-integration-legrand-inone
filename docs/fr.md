@@ -24,9 +24,9 @@ Si un interrupteur n'apparaît pas, appuyez dessus de nouveau et relancez la rec
 
 ## Appareils liés
 
-Le bus ne dit jamais l'état d'un récepteur. Quand un bouton pilote plusieurs lumières (un groupe, une scène), seul le bouton envoie une trame et les lumières restent muettes. Le réglage **Appareils liés** indique à l'intégration quelles lumières suivent quel bouton. Rien n'est envoyé sur le bus : seul l'état affiché dans Gladys est mis à jour.
+Le bus ne dit jamais l'état d'un récepteur. Quand un bouton pilote plusieurs lumières (un groupe, une scène), seul le bouton envoie une trame et les lumières restent muettes. Les réglages **Règle 1** à **Règle 6** (une règle par champ) indiquent à l'intégration quelles lumières suivent quel bouton. Rien n'est envoyé sur le bus : seul l'état affiché dans Gladys est mis à jour.
 
-Utilisez les numéros de circuit affichés dans les journaux (`944559-1`). Une règle par ligne, ou séparées par `;` :
+Utilisez les numéros de circuit affichés dans les journaux (`944559-1`). Une règle par champ :
 
 ```
 648966-1 -> 944559-1, 944559-2

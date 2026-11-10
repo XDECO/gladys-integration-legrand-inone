@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GladysIntegration, DEVICE_FEATURE_CATEGORIES, DEVICE_FEATURE_TYPES } from '@gladysassistant/integration-sdk';
-import { DEFAULT_HOST, DEFAULT_PORT, parseLinks } from '../src/config.js';
+import { DEFAULT_HOST, DEFAULT_PORT, LINK_FIELDS, parseLinks } from '../src/config.js';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const manifest = JSON.parse(read('gladys-assistant-integration.json'));
@@ -33,7 +33,7 @@ test('package.json pins the SDK version and the license', () => {
 
 test('config_schema fields are valid and match the code defaults', () => {
   const keys = manifest.config_schema.map((f) => f.key);
-  assert.deepEqual(keys, ['host', 'port', 'links']);
+  assert.deepEqual(keys, ['host', 'port', 'links_help', 'link_1', 'link_2', 'link_3', 'link_4', 'link_5', 'link_6']);
   for (const field of manifest.config_schema) {
     assert.match(field.key, /^[a-z0-9_]+$/);
     assert.ok(field.label.en, `${field.key} needs an English label`);
@@ -43,10 +43,16 @@ test('config_schema fields are valid and match the code defaults', () => {
   assert.equal(host.default, DEFAULT_HOST);
   assert.equal(port.default, DEFAULT_PORT);
   assert.equal(port.type, 'number');
-  const links = manifest.config_schema.find((f) => f.key === 'links');
-  assert.equal(links.type, 'string');
-  assert.ok(!links.required, 'the links are optional');
-  assert.ok(parseLinks(links.placeholder.en).size > 0, 'the placeholder is a valid example');
+  const help = manifest.config_schema.find((f) => f.key === 'links_help');
+  assert.equal(help.type, 'section');
+  assert.ok(help.description.en.length <= 1000 && help.description.fr.length <= 1000);
+  assert.equal(LINK_FIELDS, 6);
+  for (let index = 1; index <= LINK_FIELDS; index += 1) {
+    const rule = manifest.config_schema.find((f) => f.key === `link_${index}`);
+    assert.equal(rule.type, 'string');
+    assert.ok(!rule.required, 'the rules are optional');
+    assert.ok(parseLinks(rule.placeholder.en).size > 0, `the placeholder of rule ${index} is a valid example`);
+  }
   assert.ok(port.default >= port.min && port.default <= port.max);
 });
 
@@ -76,4 +82,16 @@ test('externalIds builds ids that the integration can read back', async () => {
   const ids = gladys.externalIds('light', '944559-1');
   assert.deepEqual(circuitFromDevice({ external_id: ids.device }), { legrandId: 944559, unit: 1, key: '944559-1' });
   assert.ok(ids.feature('binary').startsWith(ids.device));
+});
+
+test('cover_image points to a raw GitHub file that is a PNG of 800x534 and 150 KB at most', () => {
+  assert.equal(
+    manifest.cover_image,
+    'https://raw.githubusercontent.com/XDECO/gladys-integration-legrand-inone/main/cover.png',
+  );
+  const file = readFileSync(new URL('../cover.png', import.meta.url));
+  assert.deepEqual([...file.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'PNG signature');
+  assert.equal(file.readUInt32BE(16), 800, 'width');
+  assert.equal(file.readUInt32BE(20), 534, 'height');
+  assert.ok(file.length <= 150 * 1024, `cover is ${file.length} bytes`);
 });

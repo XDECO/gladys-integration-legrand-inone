@@ -516,7 +516,7 @@ const ON_648966_1 = parseFrame('*1*1*0#10383457##'); // 648966-1 on
 const OFF_648966_1 = parseFrame('*1*0*0#10383457##'); // 648966-1 off
 
 test('lights linked to a light copy its state, from a wall button', async () => {
-  const gladys = fakeGladys({ config: { links: '648966-1 -> 944559-1, 944559-2' } });
+  const gladys = fakeGladys({ config: { link_1: '648966-1 -> 944559-1, 944559-2' } });
   const { gateway, gateways } = await setup({ gladys });
   gateway.emit('frame', ON_648966_1);
   await tick();
@@ -591,14 +591,14 @@ test('links are applied at once when the settings change, without reopening the 
   await tick();
   assert.deepEqual(gladys.published, [[PUSH_FEATURE_ID, 1]]);
 
-  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000, links: '648966-1 -> 944559-1' });
+  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000, link_2: '648966-1 -> 944559-1' });
   assert.equal(gateways.length, 1);
   assert.equal(gateway.stopped, 0);
   gateway.emit('frame', ON_648966_1);
   await tick();
   assert.deepEqual(gladys.published.slice(1), [[L1_ID, 1]]);
 
-  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000, links: '' }); // removed
+  await gladys.handlers.configUpdated({ host: '172.17.0.1', port: 2000, link_2: '' }); // removed
   gateway.emit('frame', OFF_648966_1);
   await tick();
   assert.equal(gladys.published.slice(2).some(([id]) => id === L1_ID), false);

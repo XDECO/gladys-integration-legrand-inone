@@ -53,6 +53,25 @@ test('links are read from the settings text', () => {
   assert.equal(normalizeConfig({ links: 42 }).links.size, 0);
 });
 
+test('one rule per field: the six rule fields are joined, empty and invalid ones skipped', () => {
+  const links = normalizeConfig({
+    link_1: '648966-1 -> 944559-1, 944559-2',
+    link_2: '',
+    link_3: '648966-3 -> 944559-1=off, 944559-2=off, 648966-1=off',
+    link_4: undefined,
+    link_5: 42,
+    link_6: '648966-2 -> 944559-1=on',
+    link_7: '1-1 -> 2-2', // there is no seventh field
+  }).links;
+  assert.deepEqual([...links.keys()], ['648966-1', '648966-3', '648966-2']);
+  assert.equal(links.get('648966-3').length, 3);
+});
+
+test('the older single "links" field is still read, next to the rule fields', () => {
+  const links = normalizeConfig({ links: '1-1 -> 2-2; 3-3 -> 4-4', link_1: '5-5 -> 6-6' }).links;
+  assert.deepEqual([...links.keys()], ['1-1', '3-3', '5-5']);
+});
+
 test('parseLinks reads several rules, fixed states and both arrow styles', () => {
   const links = parseLinks('648966-1 -> 944559-1; 648966-2 > 944559-1=on, 944559-2=OFF\n648966-3 -> 944559-2=1 944559-1=0');
   assert.deepEqual(links.get('648966-1'), [{ key: '944559-1', on: null }]);

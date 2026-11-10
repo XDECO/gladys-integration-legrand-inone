@@ -8,6 +8,9 @@ import { circuitKey, MAX_UNIT } from './protocol.js';
 export const DEFAULT_HOST = '172.17.0.1';
 export const DEFAULT_PORT = 2000;
 
+/** Number of "rule" fields in the settings form (link_1 ... link_N). */
+export const LINK_FIELDS = 6;
+
 /**
  * Read the "linked devices" setting. One rule per line (or separated by ";"):
  *
@@ -46,6 +49,16 @@ export function parseLinks(raw) {
   return links;
 }
 
+/**
+ * The text of all the rule fields (link_1 ... link_6, one rule each), plus the
+ * older single "links" field, joined as lines for parseLinks().
+ */
+function linkText(config) {
+  const parts = [config.links];
+  for (let index = 1; index <= LINK_FIELDS; index += 1) parts.push(config[`link_${index}`]);
+  return parts.filter((part) => typeof part === 'string').join('\n');
+}
+
 /** "944559-1" -> the same key when the numbers are valid, else null. */
 function parseKey(text) {
   const [id, unit] = text.split('-').map(Number);
@@ -68,7 +81,7 @@ export function normalizeConfig(raw = {}) {
   return {
     host: host === '' ? DEFAULT_HOST : host,
     port: validPort ? port : DEFAULT_PORT,
-    links: parseLinks(config.links),
+    links: parseLinks(linkText(config)),
   };
 }
 

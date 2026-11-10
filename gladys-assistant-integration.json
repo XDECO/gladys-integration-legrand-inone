@@ -6,12 +6,13 @@
     "en": "Control Legrand In One (PLC) lights through the 882 13 USB serial interface",
     "fr": "Pilotez vos éclairages Legrand In One (CPL) via l'interface USB série 882 13"
   },
-  "version": "0.3.2",
-  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.3.2",
+  "version": "0.4.0",
+  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.4.0",
   "gladys_version": ">=4.86.0",
   "categories": [
     "lighting"
   ],
+  "cover_image": "https://raw.githubusercontent.com/XDECO/gladys-integration-legrand-inone/main/cover.png",
   "config_schema": [
     {
       "key": "host",
@@ -40,15 +41,92 @@
       "required": true
     },
     {
-      "key": "links",
+      "key": "links_help",
+      "type": "section",
+      "label": {
+        "en": "Linked devices",
+        "fr": "Appareils liés"
+      },
+      "description": {
+        "en": "The bus never reports the state of a receiver. Each rule below tells which lights follow a button, in Gladys only (nothing is sent on the bus). Use the circuit numbers printed in the logs. A light on the left: the lights on the right copy its state, e.g. 648966-1 -> 944559-1, 944559-2. A scenario button on the left: give each light its state, e.g. 648966-3 -> 944559-1=off, 944559-2=off.",
+        "fr": "Le bus ne dit jamais l'état d'un récepteur. Chaque règle ci-dessous indique quelles lumières suivent un bouton, dans Gladys uniquement (rien n'est envoyé sur le bus). Utilisez les numéros de circuit affichés dans les journaux. Une lumière à gauche : les lumières de droite copient son état, ex. 648966-1 -> 944559-1, 944559-2. Un bouton de scène à gauche : donnez l'état de chaque lumière, ex. 648966-3 -> 944559-1=off, 944559-2=off."
+      }
+    },
+    {
+      "key": "link_1",
       "type": "string",
       "label": {
-        "en": "Linked devices (e.g. 648966-1 -> 944559-1, 944559-2; separate rules with ;)",
-        "fr": "Appareils liés (ex. 648966-1 -> 944559-1, 944559-2 ; séparez les règles par ;)"
+        "en": "Rule 1",
+        "fr": "Règle 1"
       },
       "placeholder": {
         "en": "648966-1 -> 944559-1, 944559-2",
         "fr": "648966-1 -> 944559-1, 944559-2"
+      },
+      "default": ""
+    },
+    {
+      "key": "link_2",
+      "type": "string",
+      "label": {
+        "en": "Rule 2",
+        "fr": "Règle 2"
+      },
+      "placeholder": {
+        "en": "648966-3 -> 944559-1=off, 944559-2=off",
+        "fr": "648966-3 -> 944559-1=off, 944559-2=off"
+      },
+      "default": ""
+    },
+    {
+      "key": "link_3",
+      "type": "string",
+      "label": {
+        "en": "Rule 3",
+        "fr": "Règle 3"
+      },
+      "placeholder": {
+        "en": "648966-3 -> 944559-1=off, 944559-2=off",
+        "fr": "648966-3 -> 944559-1=off, 944559-2=off"
+      },
+      "default": ""
+    },
+    {
+      "key": "link_4",
+      "type": "string",
+      "label": {
+        "en": "Rule 4",
+        "fr": "Règle 4"
+      },
+      "placeholder": {
+        "en": "648966-3 -> 944559-1=off, 944559-2=off",
+        "fr": "648966-3 -> 944559-1=off, 944559-2=off"
+      },
+      "default": ""
+    },
+    {
+      "key": "link_5",
+      "type": "string",
+      "label": {
+        "en": "Rule 5",
+        "fr": "Règle 5"
+      },
+      "placeholder": {
+        "en": "648966-3 -> 944559-1=off, 944559-2=off",
+        "fr": "648966-3 -> 944559-1=off, 944559-2=off"
+      },
+      "default": ""
+    },
+    {
+      "key": "link_6",
+      "type": "string",
+      "label": {
+        "en": "Rule 6",
+        "fr": "Règle 6"
+      },
+      "placeholder": {
+        "en": "648966-3 -> 944559-1=off, 944559-2=off",
+        "fr": "648966-3 -> 944559-1=off, 944559-2=off"
       },
       "default": ""
     }
