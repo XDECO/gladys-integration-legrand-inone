@@ -117,22 +117,19 @@ export class CircuitRegistry {
   }
 
   /**
-   * A guess of the product behind an identifier, from the keys heard so far.
-   * The bus only tells the family of a key (light or scenario); the product is
-   * deduced from the catalogue and gets better as more keys are pressed.
-   * Look-alikes (with/without indicator) cannot be told apart.
+   * The kind of product behind an identifier, from the keys heard so far: an
+   * "inter" (only light keys) or an "inter scenario" (at least one scenario
+   * key). The bus only tells the family of each key, so this is all that can
+   * be said without guessing a reference.
    * @param {number} legrandId
-   * @returns {{ lights: number, scenarios: number, product: string|null }}
+   * @returns {{ lights: number, scenarios: number, product: 'inter'|'inter scenario'|null }}
    */
   productHint(legrandId) {
     const lights = [...this.#lights.values()].filter((c) => c.legrandId === legrandId).length;
     const scenarios = [...this.#scenarios.values()].filter((c) => c.legrandId === legrandId).length;
     let product = null;
-    if (lights > 0 && scenarios > 0) product = 'interscenario eclairage 672 08';
-    else if (scenarios >= 4) product = 'interscenario emetteur 672 80';
-    else if (scenarios > 0) product = 'emetteur de scenarios';
-    else if (lights >= 2) product = 'inter double 672 02/04';
-    else if (lights === 1) product = 'inter simple 672 01/03 ou touche d\'un inter double';
+    if (scenarios > 0) product = 'inter scenario';
+    else if (lights > 0) product = 'inter';
     return { lights, scenarios, product };
   }
 

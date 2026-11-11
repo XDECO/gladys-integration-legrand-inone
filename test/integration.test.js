@@ -241,12 +241,12 @@ test('scan describes each light as a controllable light with feedback', async ()
   await gladys.handlers.scan();
   assert.deepEqual(gladys.discovered[0], [
     {
-      name: "Legrand 944559-1 (inter simple 672 01/03 ou touche d'un inter double ?)",
+      name: 'Legrand 944559-1 (inter)',
       external_id: 'ext:sel:light:944559-1',
       params: [
         { name: 'LEGRAND_ID', value: '944559' },
         { name: 'UNIT', value: '1' },
-        { name: 'PRODUCT_HINT', value: "inter simple 672 01/03 ou touche d'un inter double" },
+        { name: 'PRODUCT_HINT', value: 'inter' },
       ],
       features: [
         {
@@ -457,11 +457,11 @@ test('scan lists scenarios as read-only buttons next to the lights', async () =>
   const devices = gladys.discovered[0];
   assert.deepEqual(devices.map((d) => d.external_id), ['ext:sel:light:944559-1', 'ext:sel:scenario:648966-2']);
   assert.deepEqual(devices[1], {
-    name: 'Legrand scenario 648966-2 (emetteur de scenarios ?)',
+    name: 'Legrand scenario 648966-2',
     external_id: 'ext:sel:scenario:648966-2',
     params: [
       { name: 'LEGRAND_ID', value: '648966' },
-      { name: 'PRODUCT_HINT', value: 'emetteur de scenarios' },
+      { name: 'PRODUCT_HINT', value: 'inter scenario' },
       { name: 'UNIT', value: '2' },
     ],
     features: [
@@ -512,42 +512,32 @@ test('every frame received and every command sent is logged', async () => {
 
 // ---- product hints -------------------------------------------------------------------
 
-test('the product hint follows the keys heard: one key, then two, then a scenario', async () => {
+test('a light key is an "inter" until a scenario key of the same product is heard', async () => {
   const { gladys, gateway } = await setup();
   const names = async () => {
     await gladys.handlers.scan();
     return gladys.discovered.at(-1).map((d) => d.name);
   };
   gateway.emit('frame', parseFrame('*1*1*0#10383457##')); // 648966-1
-  assert.deepEqual(await names(), ["Legrand 648966-1 (inter simple 672 01/03 ou touche d'un inter double ?)"]);
+  assert.deepEqual(await names(), ['Legrand 648966-1 (inter)']);
 
-  gateway.emit('frame', parseFrame('*1*1*0#10383456##')); // 648966-0: a second light key
-  assert.deepEqual(await names(), [
-    'Legrand 648966-0 (inter double 672 02/04 ?)',
-    'Legrand 648966-1 (inter double 672 02/04 ?)',
-  ]);
-
-  gateway.emit('frame', SCENARIO_ACTION); // 648966-2: light keys + a scenario key
-  assert.deepEqual(await names(), [
-    'Legrand 648966-0 (interscenario eclairage 672 08 ?)',
-    'Legrand 648966-1 (interscenario eclairage 672 08 ?)',
-    'Legrand scenario 648966-2 (interscenario eclairage 672 08 ?)',
-  ]);
+  gateway.emit('frame', SCENARIO_ACTION); // 648966-2: a scenario key of the same product
+  assert.deepEqual(await names(), ['Legrand 648966-1 (inter scenario)', 'Legrand scenario 648966-2']);
 });
 
-test('four scenario keys and no light key read as a scenario transmitter', async () => {
+test('scenario buttons carry no suffix, and their PRODUCT_HINT says "inter scenario"', async () => {
   const { gladys, gateway } = await setup();
-  for (const unit of [0, 1, 2, 3]) {
+  for (const unit of [1, 2, 3, 4]) {
     gateway.emit('frame', parseFrame(`*25*11*0#${950680 * 16 + unit}##`));
   }
   await gladys.handlers.scan();
   assert.deepEqual(gladys.discovered[0].map((d) => d.name), [
-    'Legrand scenario 950680-0 (interscenario emetteur 672 80 ?)',
-    'Legrand scenario 950680-1 (interscenario emetteur 672 80 ?)',
-    'Legrand scenario 950680-2 (interscenario emetteur 672 80 ?)',
-    'Legrand scenario 950680-3 (interscenario emetteur 672 80 ?)',
+    'Legrand scenario 950680-1',
+    'Legrand scenario 950680-2',
+    'Legrand scenario 950680-3',
+    'Legrand scenario 950680-4',
   ]);
-  assert.equal(gladys.discovered[0][0].params.find((p) => p.name === 'PRODUCT_HINT').value, 'interscenario emetteur 672 80');
+  assert.equal(gladys.discovered[0][0].params.find((p) => p.name === 'PRODUCT_HINT').value, 'inter scenario');
 });
 
 // ---- linked devices ------------------------------------------------------------------

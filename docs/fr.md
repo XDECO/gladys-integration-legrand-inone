@@ -12,7 +12,7 @@ Intégration non officielle, sans lien avec Legrand. Elle permet d'allumer et d'
 1. Démarrez le conteneur de la passerelle série. Par défaut, il écoute sur `172.17.0.1:2000`.
 2. Installez cette intégration et vérifiez l'adresse et le port dans ses paramètres.
 3. **Appuyez une fois sur chaque interrupteur.** Le bus Legrand ne sait pas lister ses équipements : l'intégration apprend chaque circuit à partir des trames que les interrupteurs envoient quand on appuie dessus.
-4. Ouvrez l'onglet Découverte et lancez une recherche. Chaque circuit vu sur le bus apparaît comme une lumière nommée `Legrand <id>-<unité>`, suivie entre parenthèses du produit probable, par exemple `(inter double 672 02/04 ?)`. Ce libellé est déduit des touches déjà entendues : il s'affine quand vous appuyez sur les autres touches du même appareil, et le point d'interrogation rappelle que c'est une estimation. Créez les circuits que vous voulez et renommez-les.
+4. Ouvrez l'onglet Découverte et lancez une recherche. Chaque circuit vu sur le bus apparaît comme une lumière nommée `Legrand <id>-<unité>`, suivie entre parenthèses du type d'appareil : `(inter)` pour un interrupteur, `(inter scenario)` pour la touche marche/arrêt d'un interscénario. Ce type est déduit des touches déjà entendues : un interscénario dont seule la touche marche/arrêt a été pressée apparaît d'abord comme `(inter)`, puis passe à `(inter scenario)` dès qu'une de ses touches de scène parle. Créez les circuits que vous voulez et renommez-les.
 
 Si un interrupteur n'apparaît pas, appuyez dessus de nouveau et relancez la recherche. La liste des circuits connus est conservée après un redémarrage.
 

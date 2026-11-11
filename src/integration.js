@@ -238,7 +238,7 @@ export class LegrandIntegration {
   buildScenarioDevice(circuit) {
     const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
     return {
-      name: `Legrand scenario ${circuit.key}${this.#hintSuffix(circuit)}`,
+      name: `Legrand scenario ${circuit.key}`,
       external_id: ids.device,
       params: [
         { name: 'LEGRAND_ID', value: String(circuit.legrandId) },
@@ -261,10 +261,10 @@ export class LegrandIntegration {
     };
   }
 
-  /** " (inter double 672 02/04 ?)" — the question mark says it is a guess. */
+  /** " (inter)" or " (inter scenario)": the kind of product the key belongs to. */
   #hintSuffix(circuit) {
     const { product } = this.registry.productHint(circuit.legrandId);
-    return product ? ` (${product} ?)` : '';
+    return product ? ` (${product})` : '';
   }
 
   // ---- settings and gateway lifecycle ------------------------------------------

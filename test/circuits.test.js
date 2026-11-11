@@ -220,20 +220,20 @@ test('scenario entries of a saved file are validated too', () => {
 
 // ---- product hints ------------------------------------------------------------------
 
-test('productHint counts the keys of one identifier only, and knows nothing of an unseen one', () => {
+test('productHint: light keys only make an "inter", any scenario key an "inter scenario"', () => {
   const registry = new CircuitRegistry();
   assert.deepEqual(registry.productHint(1), { lights: 0, scenarios: 0, product: null });
   registry.observe(parseFrame('*1*1*0#15112945##'), 1); // 944559-1
   registry.observe(parseFrame('*1*1*0#15112946##'), 2); // 944559-2
-  registry.observe(parseFrame('*25*11*0#10383458##'), 3); // 648966-2
-  assert.deepEqual(registry.productHint(944559), { lights: 2, scenarios: 0, product: 'inter double 672 02/04' });
-  assert.deepEqual(registry.productHint(648966), { lights: 0, scenarios: 1, product: 'emetteur de scenarios' });
+  registry.observe(parseFrame('*1*1*0#10383457##'), 3); // 648966-1
+  registry.observe(parseFrame('*25*11*0#10383458##'), 4); // 648966-2
+  assert.deepEqual(registry.productHint(944559), { lights: 2, scenarios: 0, product: 'inter' });
+  assert.deepEqual(registry.productHint(648966), { lights: 1, scenarios: 1, product: 'inter scenario' });
 });
 
-test('three scenario keys alone are only "a scenario transmitter"; four make it a 672 80', () => {
+test('productHint counts the keys of one identifier only', () => {
   const registry = new CircuitRegistry();
-  for (const unit of [0, 1, 2]) registry.observe(parseFrame(`*25*11*0#${950680 * 16 + unit}##`), unit);
-  assert.equal(registry.productHint(950680).product, 'emetteur de scenarios');
-  registry.observe(parseFrame(`*25*11*0#${950680 * 16 + 3}##`), 4);
-  assert.equal(registry.productHint(950680).product, 'interscenario emetteur 672 80');
+  registry.observe(parseFrame('*25*11*0#10383458##'), 1); // 648966-2
+  assert.equal(registry.productHint(944559).product, null);
+  assert.equal(registry.productHint(648966).product, 'inter scenario');
 });

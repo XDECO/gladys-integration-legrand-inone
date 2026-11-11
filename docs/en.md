@@ -12,7 +12,7 @@ Unofficial integration, not affiliated with Legrand. It turns on and off the lig
 1. Start the serial gateway container. By default it listens on `172.17.0.1:2000`.
 2. Install this integration and check the address and port in its settings.
 3. **Press each wall switch once.** The Legrand bus cannot list its devices, so the integration learns each circuit from the frames the switches send when they are pressed.
-4. Open the Discovery tab and run a scan. Each circuit seen on the bus appears as a light named `Legrand <id>-<unit>`, followed in brackets by the probable product, for example `(inter double 672 02/04 ?)`. This label is deduced from the keys heard so far: it gets better as you press the other keys of the same device, and the question mark says it is a guess. Create the circuits you want and rename them.
+4. Open the Discovery tab and run a scan. Each circuit seen on the bus appears as a light named `Legrand <id>-<unit>`, followed in brackets by the kind of device: `(inter)` for a switch, `(inter scenario)` for the on/off key of a scenario switch. This is deduced from the keys heard so far: a scenario switch whose on/off key alone was pressed first shows as `(inter)`, then turns to `(inter scenario)` once one of its scene keys is heard. Create the circuits you want and rename them.
 
 If a switch does not appear, press it again and rescan. The list of known circuits is kept across restarts.
 
