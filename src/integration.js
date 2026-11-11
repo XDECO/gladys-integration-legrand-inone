@@ -211,11 +211,12 @@ export class LegrandIntegration {
   buildDevice(circuit) {
     const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
     return {
-      name: `Legrand ${circuit.key}`,
+      name: `Legrand ${circuit.key}${this.#hintSuffix(circuit)}`,
       external_id: ids.device,
       params: [
         { name: 'LEGRAND_ID', value: String(circuit.legrandId) },
         { name: 'UNIT', value: String(circuit.unit) },
+        { name: 'PRODUCT_HINT', value: this.registry.productHint(circuit.legrandId).product || '' },
       ],
       features: [
         {
@@ -237,10 +238,11 @@ export class LegrandIntegration {
   buildScenarioDevice(circuit) {
     const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
     return {
-      name: `Legrand scenario ${circuit.key}`,
+      name: `Legrand scenario ${circuit.key}${this.#hintSuffix(circuit)}`,
       external_id: ids.device,
       params: [
         { name: 'LEGRAND_ID', value: String(circuit.legrandId) },
+        { name: 'PRODUCT_HINT', value: this.registry.productHint(circuit.legrandId).product || '' },
         { name: 'UNIT', value: String(circuit.unit) },
       ],
       features: [
@@ -257,6 +259,12 @@ export class LegrandIntegration {
         },
       ],
     };
+  }
+
+  /** " (inter double 672 02/04 ?)" — the question mark says it is a guess. */
+  #hintSuffix(circuit) {
+    const { product } = this.registry.productHint(circuit.legrandId);
+    return product ? ` (${product} ?)` : '';
   }
 
   // ---- settings and gateway lifecycle ------------------------------------------

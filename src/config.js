@@ -9,7 +9,7 @@ export const DEFAULT_HOST = '172.17.0.1';
 export const DEFAULT_PORT = 2000;
 
 /** Number of "rule" fields in the settings form (link_1 ... link_N). */
-export const LINK_FIELDS = 6;
+export const LINK_FIELDS = 12;
 
 /**
  * Read the "linked devices" setting. One rule per line (or separated by ";"):

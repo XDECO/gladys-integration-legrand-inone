@@ -53,7 +53,7 @@ test('links are read from the settings text', () => {
   assert.equal(normalizeConfig({ links: 42 }).links.size, 0);
 });
 
-test('one rule per field: the six rule fields are joined, empty and invalid ones skipped', () => {
+test('one rule per field: the twelve rule fields are joined, empty and invalid ones skipped', () => {
   const links = normalizeConfig({
     link_1: '648966-1 -> 944559-1, 944559-2',
     link_2: '',
@@ -61,7 +61,7 @@ test('one rule per field: the six rule fields are joined, empty and invalid ones
     link_4: undefined,
     link_5: 42,
     link_6: '648966-2 -> 944559-1=on',
-    link_7: '1-1 -> 2-2', // there is no seventh field
+    link_13: '1-1 -> 2-2', // there is no thirteenth field
   }).links;
   assert.deepEqual([...links.keys()], ['648966-1', '648966-3', '648966-2']);
   assert.equal(links.get('648966-3').length, 3);

@@ -33,7 +33,7 @@ test('package.json pins the SDK version and the license', () => {
 
 test('config_schema fields are valid and match the code defaults', () => {
   const keys = manifest.config_schema.map((f) => f.key);
-  assert.deepEqual(keys, ['host', 'port', 'links_help', 'link_1', 'link_2', 'link_3', 'link_4', 'link_5', 'link_6']);
+  assert.deepEqual(keys, ['host', 'port', 'links_help', ...Array.from({ length: 12 }, (_, i) => `link_${i + 1}`)]);
   for (const field of manifest.config_schema) {
     assert.match(field.key, /^[a-z0-9_]+$/);
     assert.ok(field.label.en, `${field.key} needs an English label`);
@@ -46,7 +46,7 @@ test('config_schema fields are valid and match the code defaults', () => {
   const help = manifest.config_schema.find((f) => f.key === 'links_help');
   assert.equal(help.type, 'section');
   assert.ok(help.description.en.length <= 1000 && help.description.fr.length <= 1000);
-  assert.equal(LINK_FIELDS, 6);
+  assert.equal(LINK_FIELDS, 12);
   for (let index = 1; index <= LINK_FIELDS; index += 1) {
     const rule = manifest.config_schema.find((f) => f.key === `link_${index}`);
     assert.equal(rule.type, 'string');

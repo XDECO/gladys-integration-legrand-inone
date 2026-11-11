@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="534" viewBox="0 0 800 534">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0b1633"/>
-      <stop offset="1" stop-color="#1f3f9a"/>
+      <stop offset="0" stop-color="#0b1633"/><stop offset="1" stop-color="#1f3f9a"/>
     </linearGradient>
     <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
       <stop offset="0" stop-color="#ffe9a0" stop-opacity="0.95"/>
@@ -10,62 +9,71 @@
       <stop offset="1" stop-color="#ffc54a" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff6cf"/>
-      <stop offset="1" stop-color="#ffcf55"/>
+      <stop offset="0" stop-color="#fff6cf"/><stop offset="1" stop-color="#ffcf55"/>
     </linearGradient>
     <linearGradient id="lime" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#b6e22e"/>
-      <stop offset="1" stop-color="#6fcf3a"/>
+      <stop offset="0" stop-color="#b6e22e"/><stop offset="1" stop-color="#6fcf3a"/>
+    </linearGradient>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6f8fc"/><stop offset="1" stop-color="#d5dcea"/>
+    </linearGradient>
+    <linearGradient id="key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e3e8f2"/>
     </linearGradient>
   </defs>
 
   <rect width="800" height="534" fill="url(#bg)"/>
-  <!-- soft background rings -->
   <circle cx="215" cy="215" r="250" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="2"/>
   <circle cx="215" cy="215" r="190" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="2"/>
 
-  <!-- glow + bulb -->
-  <circle cx="215" cy="205" r="190" fill="url(#glow)"/>
-  <g stroke="#ffe9a0" stroke-width="7" stroke-linecap="round" opacity="0.9">
-    <line x1="215" y1="22" x2="215" y2="52"/>
-    <line x1="80" y1="78" x2="102" y2="100"/>
-    <line x1="350" y1="78" x2="328" y2="100"/>
-    <line x1="30" y1="205" x2="62" y2="205"/>
-    <line x1="400" y1="205" x2="368" y2="205"/>
+  <!-- bulb (smaller) -->
+  <g transform="translate(0,-18)">
+    <circle cx="215" cy="150" r="150" fill="url(#glow)"/>
+    <g transform="translate(215,0) scale(0.62) translate(-215,0)">
+      <g stroke="#ffe9a0" stroke-width="9" stroke-linecap="round" opacity="0.9">
+        <line x1="215" y1="22" x2="215" y2="52"/>
+        <line x1="80" y1="78" x2="102" y2="100"/>
+        <line x1="350" y1="78" x2="328" y2="100"/>
+        <line x1="30" y1="205" x2="62" y2="205"/>
+        <line x1="400" y1="205" x2="368" y2="205"/>
+      </g>
+      <path d="M215 80 C160 80 128 120 128 168 C128 205 148 222 162 246 C170 260 172 270 172 288 L258 288 C258 270 260 260 268 246 C282 222 302 205 302 168 C302 120 270 80 215 80 Z"
+            fill="url(#glass)" stroke="#fff3c4" stroke-width="5"/>
+      <path d="M190 288 L190 232 C190 214 205 214 205 232 C205 250 225 250 225 232 C225 214 240 214 240 232 L240 288"
+            fill="none" stroke="#c77a12" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="170" y="292" width="90" height="16" rx="6" fill="#cfd6e6"/>
+      <rect x="174" y="312" width="82" height="16" rx="6" fill="#aab4cc"/>
+      <rect x="180" y="332" width="70" height="16" rx="6" fill="#cfd6e6"/>
+    </g>
   </g>
-  <path d="M215 80 C160 80 128 120 128 168 C128 205 148 222 162 246 C170 260 172 270 172 288 L258 288 C258 270 260 260 268 246 C282 222 302 205 302 168 C302 120 270 80 215 80 Z"
-        fill="url(#glass)" stroke="#fff3c4" stroke-width="4"/>
-  <!-- filament -->
-  <path d="M190 288 L190 232 C190 214 205 214 205 232 C205 250 225 250 225 232 C225 214 240 214 240 232 L240 288"
-        fill="none" stroke="#c77a12" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- base -->
-  <rect x="170" y="292" width="90" height="16" rx="6" fill="#cfd6e6"/>
-  <rect x="174" y="312" width="82" height="16" rx="6" fill="#aab4cc"/>
-  <rect x="180" y="332" width="70" height="16" rx="6" fill="#cfd6e6"/>
-  <path d="M192 352 L238 352 L226 372 L204 372 Z" fill="#8792b0"/>
 
-  <!-- power line with pulses: the "CPL" idea -->
-  <path d="M0 440 L800 440" stroke="#ffffff" stroke-opacity="0.25" stroke-width="3"/>
-  <path d="M0 440 C25 400 50 400 75 440 S125 480 150 440 S200 400 225 440 S275 480 300 440 S350 400 375 440 S425 480 450 440 S500 400 525 440 S575 480 600 440 S650 400 675 440 S725 480 750 440 S790 410 800 430"
+  <!-- signal between the switch and the bulb -->
+  <g stroke="url(#lime)" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M215 252 C203 242 227 232 215 222"/>
+  </g>
+
+  <!-- generic wall switch: plate with two rocker keys -->
+  <rect x="145" y="256" width="140" height="170" rx="18" fill="url(#plate)" stroke="#ffffff" stroke-opacity="0.8" stroke-width="3"/>
+  <rect x="164" y="276" width="102" height="62" rx="10" fill="url(#key)" stroke="#aeb8d0" stroke-width="2"/>
+  <rect x="164" y="346" width="102" height="62" rx="10" fill="url(#key)" stroke="#aeb8d0" stroke-width="2"/>
+  <circle cx="215" cy="307" r="7" fill="#8bd22f"/>
+  <circle cx="215" cy="307" r="13" fill="#8bd22f" opacity="0.3"/>
+  <circle cx="215" cy="377" r="5" fill="#9aa5c0"/>
+
+  <!-- power line (CPL) -->
+  <path d="M0 470 L800 470" stroke="#ffffff" stroke-opacity="0.25" stroke-width="3"/>
+  <path d="M0 470 C25 438 50 438 75 470 S125 502 150 470 S200 438 225 470 S275 502 300 470 S350 438 375 470 S425 502 450 470 S500 438 525 470 S575 502 600 470 S650 438 675 470 S725 502 750 470 S790 444 800 460"
         fill="none" stroke="url(#lime)" stroke-width="6" stroke-linecap="round"/>
-  <!-- small lamps on the line -->
-  <g fill="#ffe08a">
-    <circle cx="112" cy="440" r="11"/><circle cx="262" cy="440" r="11"/><circle cx="412" cy="440" r="11"/>
-    <circle cx="562" cy="440" r="11"/><circle cx="712" cy="440" r="11"/>
-  </g>
-  <g fill="#ffe08a" opacity="0.28">
-    <circle cx="112" cy="440" r="22"/><circle cx="262" cy="440" r="22"/><circle cx="412" cy="440" r="22"/>
-    <circle cx="562" cy="440" r="22"/><circle cx="712" cy="440" r="22"/>
-  </g>
 
   <!-- title -->
   <g font-family="DejaVu Sans, Verdana, sans-serif" font-weight="700">
-    <text x="430" y="150" font-size="54" fill="#ffffff">Legrand</text>
-    <text x="430" y="212" font-size="54" fill="#ffffff">In One CPL</text>
-    <rect x="430" y="232" width="150" height="7" rx="3.5" fill="url(#lime)"/>
-    <text x="430" y="282" font-size="25" fill="#c8e86a">Intégration Gladys</text>
+    <text x="430" y="120" font-size="46" fill="#ffffff">Pilotez votre</text>
+    <text x="430" y="182" font-size="52" fill="#ffffff">In One CPL</text>
+    <rect x="430" y="202" width="150" height="7" rx="3.5" fill="url(#lime)"/>
+    <text x="430" y="252" font-size="25" fill="#c8e86a">Intégration Gladys</text>
+    <text x="430" y="290" font-size="19" font-weight="400" fill="#d6defa">Équipements Legrand In One (CPL)</text>
     <text x="430" y="316" font-size="19" font-weight="400" fill="#d6defa">Lumières, scènes et état</text>
     <text x="430" y="342" font-size="19" font-weight="400" fill="#d6defa">via l'interface USB 882 13</text>
   </g>
-  <text x="24" y="512" font-family="DejaVu Sans, Verdana, sans-serif" font-size="13" fill="#ffffff" fill-opacity="0.55">Non affilié à Legrand</text>
+  <text x="24" y="518" font-family="DejaVu Sans, Verdana, sans-serif" font-size="13" fill="#ffffff" fill-opacity="0.55">Non affilié à Legrand</text>
 </svg>

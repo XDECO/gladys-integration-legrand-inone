@@ -18,6 +18,15 @@ Formerly known as *Boxio* in the Jeedom community.
 | 5 | Acceptance tests on the real installation | todo |
 | 6 | Publication | todo |
 
+## Tested hardware
+
+- Legrand PLC/USB interface ref. 882 13 (BTicino "SFERA Tele Loop" USB serial device), which speaks Open Web Net
+- Double transmitter-receiver switches ref. 672 02
+- Lighting scenario switch ref. 672 08 and scenario transmitter ref. 672 80
+- Gladys Assistant 5.3 on a Home Assistant Yellow (arm64); the image is also built for amd64
+
+A Gladys device is a *transmitter key* (identifier + direction), not a lamp: the bus only carries transmitter orders, and receivers that learned a transmitter react silently. The rest of the In One PLC range shares the protocol but is untested: on/off switches should work, dimmers only as on/off, roller shutters (WHO 2) are not supported yet, infrared/radio controls are out of scope. The user documentation (`docs/`) has the table by reference. Reports and pull requests are welcome.
+
 ## Protocol, as verified on hardware
 
 - Frame: `*WHO*WHAT*WHERE##`. WHO `1` = light (WHAT `1` on, `0` off), WHO `25` = scenario (WHAT `11` press, `16` release).
