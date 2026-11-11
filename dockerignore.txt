@@ -1,0 +1,10 @@
+node_modules
+test
+docs
+.git
+.github
+*.md
+*.log
+.env
+cover.*
+assets

@@ -44,6 +44,7 @@ This integration was developed on one installation, with:
 
 - the Legrand PLC/USB interface **ref. 882 13** (seen by Linux as a BTicino "SFERA Tele Loop" USB serial device);
 - double transmitter-receiver switches **ref. 672 02** (two directions: top key = on, bottom key = off);
+- a single transmitter-receiver switch **ref. 672 01** (frames received and decoded; command from Gladys not tested);
 - a lighting scenario switch **ref. 672 08** (on/off keys + two scenario keys);
 - a scenario transmitter **ref. 672 80** (four scenario keys);
 - Gladys Assistant 5.3 on a Home Assistant Yellow (64-bit ARM).
@@ -56,13 +57,13 @@ So a device `Legrand 944559-1` in Gladys is **a transmitter key** (identifier 94
 
 ## References of the In One PLC range
 
-From the Céliane technical guide. Only the three references above were tested; for the others the "Expected" column says what the protocol suggests, **without verification**.
+From the Céliane technical guide. Only the four references above were tested; for the others the "Expected" column says what the protocol suggests, **without verification**.
 
 **Lighting**
 
 | Reference | Product | Expected |
 |---|---|---|
-| 672 01 | Single transmitter-receiver switch 2,500 W | Like the 672 02: should work |
+| 672 01 | Single transmitter-receiver switch 2,500 W | **Tested** for reception; command expected to work like the 672 02 |
 | 672 02 | Double transmitter-receiver switch 2 × 1,000 W | **Tested** |
 | 672 03 / 672 04 | Single / double switch with indicator | Like 672 01 / 672 02: should work (the indicator is local, nothing on the bus) |
 | 672 08 | Lighting scenario switch (on/off + 2 scenarios) | **Tested** |

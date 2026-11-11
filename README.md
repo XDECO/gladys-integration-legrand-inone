@@ -21,7 +21,7 @@ Formerly known as *Boxio* in the Jeedom community.
 ## Tested hardware
 
 - Legrand PLC/USB interface ref. 882 13 (BTicino "SFERA Tele Loop" USB serial device), which speaks Open Web Net
-- Double transmitter-receiver switches ref. 672 02
+- Double transmitter-receiver switches ref. 672 02, and a single switch ref. 672 01 (reception)
 - Lighting scenario switch ref. 672 08 and scenario transmitter ref. 672 80
 - Gladys Assistant 5.3 on a Home Assistant Yellow (arm64); the image is also built for amd64
 

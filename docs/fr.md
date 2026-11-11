@@ -44,6 +44,7 @@ Cette intégration a été mise au point sur une seule installation, avec :
 
 - l'interface Legrand CPL/USB **réf. 882 13** (vue par Linux comme un périphérique série USB BTicino « SFERA Tele Loop ») ;
 - des interrupteurs doubles émetteurs-récepteurs **réf. 672 02** (deux directions : touche du haut = allumer, touche du bas = éteindre) ;
+- un interrupteur simple émetteur-récepteur **réf. 672 01** (trames reçues et décodées ; commande depuis Gladys non testée) ;
 - un interscénario d'éclairage **réf. 672 08** (touches marche/arrêt + deux touches de scénario) ;
 - un interscénario émetteur **réf. 672 80** (quatre touches de scénario) ;
 - Gladys Assistant 5.3 sur un Home Assistant Yellow (ARM 64 bits).
@@ -56,13 +57,13 @@ Un appareil `Legrand 944559-1` dans Gladys est donc **une touche d'émetteur** (
 
 ## Références de la gamme In One CPL
 
-D'après le guide technique Céliane. Seules les trois références ci-dessus ont été testées ; pour les autres, la colonne « Attendu » dit ce que le protocole laisse prévoir, **sans vérification**.
+D'après le guide technique Céliane. Seules les quatre références ci-dessus ont été testées ; pour les autres, la colonne « Attendu » dit ce que le protocole laisse prévoir, **sans vérification**.
 
 **Éclairage**
 
 | Référence | Produit | Attendu |
 |---|---|---|
-| 672 01 | Inter simple émetteur-récepteur 2 500 W | Comme le 672 02 : devrait fonctionner |
+| 672 01 | Inter simple émetteur-récepteur 2 500 W | **Testé** en réception ; commande attendue comme le 672 02 |
 | 672 02 | Inter double émetteur-récepteur 2 × 1 000 W | **Testé** |
 | 672 03 / 672 04 | Inter simple / double à voyant | Comme 672 01 / 672 02 : devrait fonctionner (le voyant est local, il ne remonte pas sur le bus) |
 | 672 08 | Interscénario d'éclairage (marche/arrêt + 2 scénarios) | **Testé** |
