@@ -1,0 +1,11 @@
+   node_modules
+   test
+   docs
+   .github
+   .git
+   .gitignore
+   README.md
+   LICENSE
+   NOTICE
+   cover.*
+   assets
