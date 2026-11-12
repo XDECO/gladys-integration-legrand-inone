@@ -62,6 +62,7 @@ function fastGateway(port, options = {}) {
     host: '127.0.0.1',
     port,
     sendIntervalMs: 0,
+    ackTimeoutMs: 0, // the fake server of most tests never answers
     minReconnectDelayMs: 10,
     maxReconnectDelayMs: 40,
     ...options,
@@ -125,6 +126,23 @@ test('setLight writes the validated frame', async () => {
     await gateway.setLight({ legrandId: 944559, unit: 1, on: false });
     await waitUntil(() => received.length >= 32);
     assert.equal(received, '*1*1*#15112945##*1*0*#15112945##');
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('launchScenario writes the scenario frame, in order with the lights', async () => {
+  let received = '';
+  const server = await startFakeServer((socket) => socket.on('data', (d) => (received += d.toString())));
+  const gateway = fastGateway(server.port);
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await gateway.launchScenario({ legrandId: 648966, unit: 3 });
+    await gateway.setLight({ legrandId: 944559, unit: 1, on: false });
+    await waitUntil(() => received.length >= 34);
+    assert.equal(received, '*25*11*#10383459##*1*0*#15112945##');
   } finally {
     gateway.stop();
     await server.close();
@@ -333,6 +351,166 @@ test('a failing frame listener does not break the connection', async () => {
     await waitUntil(() => calls === 2);
     assert.equal(warnings.length, 2);
     assert.equal(gateway.connected, true);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+// ---- answers of the interface (*#*1## accepted, *#*0## refused) ------------------------
+
+/** A fake 882 13 that answers each frame it receives from `answers` (default: accepted). */
+async function startAnsweringServer(answers = []) {
+  const received = [];
+  const server = await startFakeServer((socket) => {
+    let buffer = '';
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString('latin1');
+      let end;
+      while ((end = buffer.indexOf('##')) >= 0) {
+        const frame = buffer.slice(0, end + 2);
+        buffer = buffer.slice(end + 2);
+        received.push({ frame, at: performance.now() });
+        const answer = answers.length > 0 ? answers.shift() : 'ack';
+        if (answer === 'ack') socket.write('*#*1##');
+        else if (answer === 'nack') socket.write('*#*0##');
+        // 'none': no answer
+      }
+    });
+  });
+  return { ...server, received };
+}
+
+function answeringGateway(port, options = {}) {
+  return fastGateway(port, { ackTimeoutMs: 1000, retryDelayMs: 50, maxRetries: 3, sendIntervalMs: 20, ...options });
+}
+
+test('a command resolves only once the interface has accepted it', async () => {
+  const server = await startAnsweringServer(['ack']);
+  const gateway = answeringGateway(server.port);
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await gateway.setLight({ legrandId: 944559, unit: 1, on: true });
+    assert.deepEqual(server.received.map((r) => r.frame), ['*1*1*#15112945##']);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('the next frame waits for the answer to the previous one, then the pause', async () => {
+  const server = await startAnsweringServer(['ack', 'ack', 'ack']);
+  const gateway = answeringGateway(server.port, { sendIntervalMs: 80 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await Promise.all([
+      gateway.setLight({ legrandId: 944559, unit: 1, on: true }),
+      gateway.setLight({ legrandId: 944559, unit: 2, on: true }),
+      gateway.setLight({ legrandId: 944560, unit: 1, on: true }),
+    ]);
+    const times = server.received.map((r) => r.at);
+    assert.equal(times.length, 3);
+    for (let i = 1; i < times.length; i += 1) {
+      assert.ok(times[i] - times[i - 1] >= 70, `gap ${times[i] - times[i - 1]} ms`);
+    }
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('a refused frame is sent again after a delay, and the command then succeeds', async () => {
+  const server = await startAnsweringServer(['nack', 'nack', 'ack']);
+  const gateway = answeringGateway(server.port, { retryDelayMs: 60 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await gateway.setLight({ legrandId: 944559, unit: 2, on: false });
+    assert.deepEqual(server.received.map((r) => r.frame), ['*1*0*#15112946##', '*1*0*#15112946##', '*1*0*#15112946##']);
+    assert.ok(server.received[1].at - server.received[0].at >= 50, 'retry waits retryDelayMs');
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('a frame refused every time fails with REFUSED after maxRetries new tries', async () => {
+  const server = await startAnsweringServer(['nack', 'nack', 'nack', 'nack', 'nack']);
+  const gateway = answeringGateway(server.port, { maxRetries: 2 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await assert.rejects(gateway.setLight({ legrandId: 944559, unit: 2, on: true }), { name: 'GatewayError', code: 'REFUSED' });
+    assert.equal(server.received.length, 3); // 1 + 2 retries
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('a refused frame does not hold back the commands behind it once it fails', async () => {
+  const server = await startAnsweringServer(['nack', 'nack', 'ack']);
+  const gateway = answeringGateway(server.port, { maxRetries: 1 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    const first = gateway.setLight({ legrandId: 944559, unit: 1, on: true });
+    const second = gateway.setLight({ legrandId: 944559, unit: 2, on: true });
+    await assert.rejects(first, { code: 'REFUSED' });
+    await second;
+    assert.deepEqual(server.received.map((r) => r.frame), ['*1*1*#15112945##', '*1*1*#15112945##', '*1*1*#15112946##']);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('with no answer in time, the written command counts as sent', async () => {
+  const server = await startAnsweringServer(['none', 'ack']);
+  const gateway = answeringGateway(server.port, { ackTimeoutMs: 80 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await gateway.setLight({ legrandId: 944559, unit: 1, on: true });
+    await gateway.setLight({ legrandId: 944559, unit: 2, on: true });
+    assert.equal(server.received.length, 2);
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('a command waiting for its answer is rejected when the connection drops', async () => {
+  const server = await startAnsweringServer(['none']);
+  const gateway = answeringGateway(server.port, { ackTimeoutMs: 2000 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    const pending = gateway.setLight({ legrandId: 944559, unit: 1, on: true });
+    await waitUntil(() => server.received.length === 1);
+    server.sockets[0].destroy();
+    await assert.rejects(pending, { code: 'DISCONNECTED' });
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
+test('a command sent while another waits for its answer is not written before that answer', async () => {
+  const server = await startAnsweringServer(['none', 'ack']);
+  const gateway = answeringGateway(server.port, { ackTimeoutMs: 150 });
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    const first = gateway.setLight({ legrandId: 944559, unit: 1, on: true });
+    await waitUntil(() => server.received.length === 1);
+    const second = gateway.setLight({ legrandId: 944559, unit: 2, on: true });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(server.received.length, 1, 'still waiting for the first answer');
+    await Promise.all([first, second]);
+    assert.equal(server.received.length, 2);
   } finally {
     gateway.stop();
     await server.close();

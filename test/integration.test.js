@@ -36,6 +36,12 @@ class FakeGateway extends EventEmitter {
     this.stopped = 0;
     this.commands = [];
     this.setLightError = null;
+    this.scenarios = [];
+    this.launchError = null;
+  }
+  async launchScenario(command) {
+    if (this.launchError) throw this.launchError;
+    this.scenarios.push(command);
   }
   start() { this.started += 1; }
   stop() { this.stopped += 1; }
@@ -449,7 +455,7 @@ test('a new scenario is saved once', async () => {
   assert.deepEqual(storage.writes, [{ version: 2, circuits: [], scenarios: [{ legrandId: 648966, unit: 2 }] }]);
 });
 
-test('scan lists scenarios as read-only buttons next to the lights', async () => {
+test('scan lists scenarios as buttons Gladys can click, next to the lights', async () => {
   const { gladys, gateway } = await setup();
   gateway.emit('frame', ON);
   gateway.emit('frame', SCENARIO_ACTION);
@@ -472,7 +478,7 @@ test('scan lists scenarios as read-only buttons next to the lights', async () =>
         type: 'click',
         min: 0,
         max: 1,
-        read_only: true,
+        read_only: false,
         has_feedback: false,
         keep_history: false,
       },
@@ -488,13 +494,92 @@ test('the scenario feature id published matches the one declared at discovery', 
   assert.equal(gladys.published[0][0], gladys.discovered[0][0].features[0].external_id);
 });
 
-test('a scenario cannot be commanded from Gladys', async () => {
-  const { gladys, gateway } = await setup();
-  await assert.rejects(
-    gladys.handlers.setValue({ external_id: 'ext:sel:scenario:648966-2' }, { external_id: SCENARIO_FEATURE_ID }, 1),
-    /cannot be commanded/,
-  );
+const SCENARIO_DEVICE = { external_id: 'ext:sel:scenario:648966-3' };
+const SCENARIO_CLICK = { external_id: 'ext:sel:scenario:648966-3:click' };
+const SCENE3_FRAME = parseFrame('*25*11*0#10383459##'); // 648966 unit 3
+
+test('a click on a scenario button from Gladys launches the scenario: one frame', async () => {
+  const { gladys, gateway, logger } = await setup();
+  await gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 1);
+  assert.deepEqual(gateway.scenarios, [{ legrandId: 648966, unit: 3 }]);
   assert.deepEqual(gateway.commands, []);
+  assert.ok(logger.logs.info.some((l) => String(l[0]).includes('Sent *25*11*#10383459## (scenario 648966-3 launched from Gladys)')));
+});
+
+test('a scenario launched from Gladys is not published back as a click', async () => {
+  const { gladys } = await setup();
+  await gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 1);
+  await tick();
+  assert.deepEqual(gladys.published, []);
+});
+
+test('a scenario launched from Gladys updates its linked lights, in Gladys only', async () => {
+  const { gladys, gateway } = await setup({ gladys: fakeGladys({ config: { link_1: '648966-3 -> 944559-1=off' } }) });
+  gateway.emit('frame', ON);
+  await tick();
+  gladys.published.length = 0;
+  await gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 1);
+  await tick();
+  assert.deepEqual(gladys.published, [[FEATURE_ID, 0]]);
+  assert.deepEqual(gateway.commands, []);
+  assert.equal(gateway.scenarios.length, 1);
+});
+
+test('the echo of a launch coming back on the bus is ignored (no loop in Gladys)', async () => {
+  const { gladys, gateway, logger } = await setup();
+  await gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 1);
+  gateway.emit('frame', SCENE3_FRAME);
+  await tick();
+  assert.deepEqual(gladys.published, []);
+  assert.ok(logger.logs.info.some((l) => String(l[0]).includes('echo of a launch from Gladys')));
+});
+
+test('a wall press shortly after the echo window is a normal click again', async () => {
+  let clock = 1000;
+  const gladys = fakeGladys();
+  const gateways = [];
+  const integration = new LegrandIntegration({
+    gladys,
+    createGateway: (config) => { const g = new FakeGateway(config); gateways.push(g); return g; },
+    registry: new CircuitRegistry(),
+    storage: fakeStorage(),
+    constants: CONSTANTS,
+    logger: fakeLogger(),
+    now: () => clock,
+  });
+  integration.attach();
+  await integration.start();
+  await gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 1);
+  clock += 3001;
+  gateways[0].emit('frame', SCENE3_FRAME);
+  await tick();
+  assert.deepEqual(gladys.published, [[SCENARIO_CLICK.external_id, 1]]);
+});
+
+test('a wall press never sends anything on the bus', async () => {
+  const { gateway } = await setup();
+  gateway.emit('frame', SCENE3_FRAME);
+  gateway.emit('frame', ON);
+  await tick();
+  assert.deepEqual(gateway.scenarios, []);
+  assert.deepEqual(gateway.commands, []);
+});
+
+test('a refused or impossible scenario launch is reported to Gladys', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.launchError = new GatewayError('REFUSED', 'refused');
+  await assert.rejects(gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 1), { code: 'REFUSED' });
+  // a failed launch leaves no echo window behind: a real press is still published
+  gateway.emit('frame', SCENE3_FRAME);
+  await tick();
+  assert.deepEqual(gladys.published, [[SCENARIO_CLICK.external_id, 1]]);
+});
+
+test('a scenario button only accepts the value 1', async () => {
+  const { gladys, gateway } = await setup();
+  await assert.rejects(gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 0), /only accepts 1/);
+  await assert.rejects(gladys.handlers.setValue(SCENARIO_DEVICE, SCENARIO_CLICK, 2), /only accepts 1/);
+  assert.deepEqual(gateway.scenarios, []);
 });
 
 test('every frame received and every command sent is logged', async () => {

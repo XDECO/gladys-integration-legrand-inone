@@ -20,7 +20,7 @@ If a switch does not appear, press it again and rescan. The list of known circui
 
 - Turns lights on and off from Gladys (dashboard, scenes, voice).
 - Updates the state in Gladys when a wall switch is used.
-- Shows each Legrand scenario button as a button in Gladys (`Legrand scenario <id>-<unit>`). It clicks when the scenario is pressed, so you can use it as a trigger in Gladys scenes.
+- Shows each Legrand scenario button as a button in Gladys (`Legrand scenario <id>-<unit>`). It clicks when the scenario is pressed on a wall key, so you can use it as a trigger in Gladys scenes. Conversely, a Gladys scene can **click** this button to launch the Legrand scenario (see "Launching a Legrand scenario from Gladys").
 
 ## Linked devices
 
@@ -90,8 +90,21 @@ From the Céliane technical guide. Only the four references above were tested; f
 
 If you test one of these references, say so on the project's GitHub repository: the table will be updated.
 
+## Sending commands
+
+The 882 13 interface sends one command at a time on the power line and refuses one that arrives while it is still sending the previous one. The integration therefore sends commands one by one: it waits for the interface's answer (accepted or refused), then a short pause, before the next, and sends a refused command again up to three times. A command that is refused every time is reported as failed in Gladys, and the state shown does not change. A scene that drives ten lamps thus takes a few seconds.
+
+## Launching a Legrand scenario from Gladys
+
+In a Gladys scene, add the "Control device" action, pick `Legrand scenario <id>-<unit>` and click the button. The integration sends **one single frame** on the power line (`*25*11*#<address>##`): the receivers that learned this scenario do the rest. It costs one frame whatever the number of lamps, which makes it the right way to switch many lamps on or off at once.
+
+- A scenario that was not programmed on any receiver does nothing.
+- Pressing the wall key only listens: the integration never sends anything in answer to a received frame.
+- A scenario launched from Gladys does not click back in Gladys (no loop with a scene triggered by the same button). Linked devices are updated in Gladys as for a wall press.
+- Scenario devices created with a version older than 0.5.0 are read-only: delete them in Gladys and run a discovery again so that they can be clicked.
+
 ## Limits of this version
 
 - The bus never reports the real state of a receiver. The state shown in Gladys is deduced from the frames and from the commands sent, so it can drift (for example after a Legrand scenario that switches lights off). A command from Gladys always puts it back in line.
 - To keep Gladys up to date after a Legrand scenario, use linked devices (rule `scenario -> light=on`).
-- On/off lights only: no dimmers, no shutters, and Gladys cannot start a Legrand scenario.
+- On/off lights only: no dimmers, no shutters. Scenarios can be launched but not programmed from Gladys: the receivers must have learned them (Legrand procedure).

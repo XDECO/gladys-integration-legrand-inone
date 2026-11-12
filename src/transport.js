@@ -4,7 +4,11 @@
  * Responsibilities:
  *   - keep a connection open, reconnecting with a growing delay when it drops;
  *   - split the incoming stream into frames and emit them parsed;
- *   - send frames one at a time, with a minimum delay between two writes;
+ *   - send frames one at a time: after each write, wait for the interface's
+ *     answer (*#*1## accepted, *#*0## refused), then a pause, before the next.
+ *     The 882 13 refuses a frame that arrives while it is still sending the
+ *     previous one on the power line, so a refused frame is sent again after
+ *     a delay, a few times, before the command is reported as failed;
  *   - NEVER keep a command waiting while disconnected: a light command that
  *     executes minutes late (after a reconnection) would be a bad surprise, so
  *     commands are rejected immediately when there is no connection, and any
@@ -20,7 +24,7 @@
 
 import net from 'node:net';
 import { EventEmitter } from 'node:events';
-import { FrameDecoder, parseFrame, encodeLightCommand } from './protocol.js';
+import { FrameDecoder, parseFrame, encodeLightCommand, encodeScenarioCommand } from './protocol.js';
 
 export class GatewayError extends Error {
   constructor(code, message) {
@@ -44,7 +48,10 @@ export class LegrandGateway extends EventEmitter {
   constructor({
     host,
     port,
-    sendIntervalMs = 200,
+    sendIntervalMs = 300,
+    ackTimeoutMs = 1500,
+    retryDelayMs = 500,
+    maxRetries = 3,
     maxQueueLength = 50,
     connectTimeoutMs = 5000,
     minReconnectDelayMs = 1000,
@@ -63,6 +70,10 @@ export class LegrandGateway extends EventEmitter {
     this.host = host;
     this.port = port;
     this.sendIntervalMs = sendIntervalMs;
+    this.ackTimeoutMs = ackTimeoutMs;
+    this.retryDelayMs = retryDelayMs;
+    this.maxRetries = maxRetries;
+    this.inFlight = null; // { item, timer } while waiting for the interface's answer
     this.maxQueueLength = maxQueueLength;
     this.connectTimeoutMs = connectTimeoutMs;
     this.backoff = {
@@ -104,9 +115,10 @@ export class LegrandGateway extends EventEmitter {
   }
 
   /**
-   * Send one raw frame. Resolves once the frame has been written to the socket,
-   * rejects with a GatewayError otherwise (NOT_CONNECTED, QUEUE_FULL,
-   * INVALID_FRAME, DISCONNECTED, STOPPED, WRITE_FAILED).
+   * Send one raw frame. Resolves once the interface has accepted it (or, with
+   * ackTimeoutMs 0 or no answer in time, once it is written); rejects with a
+   * GatewayError otherwise (NOT_CONNECTED, QUEUE_FULL, INVALID_FRAME, REFUSED,
+   * DISCONNECTED, STOPPED, WRITE_FAILED).
    */
   send(frame) {
     return new Promise((resolve, reject) => {
@@ -122,9 +134,14 @@ export class LegrandGateway extends EventEmitter {
         reject(new GatewayError('QUEUE_FULL', 'Too many commands waiting'));
         return;
       }
-      this.queue.push({ frame, resolve, reject });
+      this.queue.push({ frame, resolve, reject, tries: 0 });
       this.#pump();
     });
+  }
+
+  /** Launch a scenario key (one frame). */
+  async launchScenario({ legrandId, unit }) {
+    return this.send(encodeScenarioCommand({ legrandId, unit }));
   }
 
   /** Switch a light circuit on or off. */
@@ -161,6 +178,12 @@ export class LegrandGateway extends EventEmitter {
   }
 
   #rejectQueue(error) {
+    if (this.inFlight) {
+      clearTimeout(this.inFlight.timer);
+      const { item } = this.inFlight;
+      this.inFlight = null;
+      item.reject(error);
+    }
     const waiting = this.queue.splice(0);
     for (const item of waiting) item.reject(error);
   }
@@ -192,7 +215,9 @@ export class LegrandGateway extends EventEmitter {
 
     socket.on('data', (chunk) => {
       for (const raw of this.decoder.push(chunk)) {
-        this.#emitSafe('frame', parseFrame(raw));
+        const frame = parseFrame(raw);
+        if (frame && (frame.type === 'ack' || frame.type === 'nack')) this.#onAnswer(frame.type === 'ack');
+        this.#emitSafe('frame', frame);
       }
     });
 
@@ -228,7 +253,7 @@ export class LegrandGateway extends EventEmitter {
   }
 
   #pump() {
-    if (this.pumpTimer || this.queue.length === 0 || this.state !== 'connected') return;
+    if (this.pumpTimer || this.inFlight || this.queue.length === 0 || this.state !== 'connected') return;
     const wait = Math.max(0, this.lastWriteAt + this.sendIntervalMs - performance.now());
     this.pumpTimer = setTimeout(() => {
       this.pumpTimer = null;
@@ -243,12 +268,58 @@ export class LegrandGateway extends EventEmitter {
       item.reject(new GatewayError('DISCONNECTED', 'Connection to the gateway lost'));
       return;
     }
-    this.lastWriteAt = performance.now();
+    item.tries += 1;
     this.logger.debug(`TX ${item.frame}`);
+    const waitForAnswer = this.ackTimeoutMs > 0;
+    if (waitForAnswer) {
+      this.inFlight = {
+        item,
+        timer: setTimeout(() => this.#onAnswerTimeout(), this.ackTimeoutMs),
+      };
+    }
     this.socket.write(item.frame, 'latin1', (error) => {
-      if (error) item.reject(new GatewayError('WRITE_FAILED', error.message));
-      else item.resolve();
+      if (error) {
+        if (this.inFlight && this.inFlight.item === item) {
+          clearTimeout(this.inFlight.timer);
+          this.inFlight = null;
+        }
+        item.reject(new GatewayError('WRITE_FAILED', error.message));
+        this.#pump();
+      } else if (!waitForAnswer) {
+        item.resolve();
+      }
     });
+    this.lastWriteAt = performance.now();
+    if (!waitForAnswer) this.#pump();
+  }
+
+  /** The interface answered the frame in flight: accepted, or refused. */
+  #onAnswer(accepted) {
+    if (!this.inFlight) return; // an answer to nothing of ours
+    const { item, timer } = this.inFlight;
+    clearTimeout(timer);
+    this.inFlight = null;
+    // The pause before the next frame counts from the answer, not from the write.
+    this.lastWriteAt = performance.now();
+    if (accepted) {
+      item.resolve();
+    } else if (item.tries <= this.maxRetries) {
+      this.logger.debug(`Refused, sending again: ${item.frame}`);
+      this.queue.unshift(item);
+      this.lastWriteAt = performance.now() + this.retryDelayMs - this.sendIntervalMs;
+    } else {
+      item.reject(new GatewayError('REFUSED', `The interface refused ${item.frame} ${item.tries} times`));
+    }
+    this.#pump();
+  }
+
+  /** No answer in time: the frame was written, so it counts as sent. */
+  #onAnswerTimeout() {
+    if (!this.inFlight) return;
+    const { item } = this.inFlight;
+    this.inFlight = null;
+    this.logger.warn(`No answer from the interface for ${item.frame}`);
+    item.resolve();
     this.#pump();
   }
 }

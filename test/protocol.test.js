@@ -7,6 +7,7 @@ import {
   parseFrame,
   lightStateFromFrame,
   encodeLightCommand,
+  encodeScenarioCommand,
   circuitKey,
   FrameDecoder,
 } from '../src/protocol.js';
@@ -199,4 +200,10 @@ test('FrameDecoder bounds its memory when no terminator arrives', () => {
   assert.equal(decoder.buffer, '');
   assert.equal(decoder.discardedChunks, 1);
   assert.deepEqual(decoder.push('*1*1*0#15112945##'), ['*1*1*0#15112945##']);
+});
+
+test('encodeScenarioCommand builds the scenario launch frame', () => {
+  assert.equal(encodeScenarioCommand({ legrandId: 648966, unit: 3 }), '*25*11*#10383459##');
+  assert.equal(encodeScenarioCommand({ legrandId: 950680, unit: 4 }), '*25*11*#15210884##');
+  assert.throws(() => encodeScenarioCommand({ legrandId: 648966, unit: 99 }));
 });

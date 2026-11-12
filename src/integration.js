@@ -5,6 +5,7 @@
  *   bus frame ──► registry ──► gladys.publishState        (state feedback)
  *   Gladys scan ──► registry ──► gladys.publishDiscoveredDevices
  *   Gladys command ──► gateway.setLight ──► registry ──► gladys.publishState
+ *   Gladys scenario click ──► gateway.launchScenario (one frame) ──► linked lights
  *   a light or a scenario ──► its linked lights (settings) ──► gladys.publishState
  *
  * Everything that touches the outside world (SDK, gateway, disk, clock) is
@@ -19,12 +20,16 @@
 
 import { circuitFromDevice } from './circuits.js';
 import { normalizeConfig, sameGateway } from './config.js';
-import { addressFromIdUnit, circuitKey, encodeLightCommand } from './protocol.js';
+import { addressFromIdUnit, circuitKey, encodeLightCommand, encodeScenarioCommand } from './protocol.js';
 
 const LIGHT_TYPE = 'light';
 const LIGHT_FEATURE = 'binary';
 const SCENARIO_TYPE = 'scenario';
 const SCENARIO_FEATURE = 'click';
+// A scenario launched from Gladys must never come back as a "click" in Gladys
+// (a Gladys scene triggered by that button would loop): frames of the same key
+// seen within this delay after our own send are treated as an echo and ignored.
+const ECHO_WINDOW_MS = 3000;
 
 const MESSAGES = {
   gatewayDown: (config) => ({
@@ -59,6 +64,7 @@ export class LegrandIntegration {
     this.lastReportedConnected = null;
     this.saveChain = Promise.resolve();
     this.warnedKeys = new Set();
+    this.launchedAt = new Map();
   }
 
   /** Register the Gladys handlers. Call before gladys.connect(). */
@@ -102,7 +108,7 @@ export class LegrandIntegration {
       throw new Error(`Cannot find the circuit of device ${device && device.external_id}`);
     }
     if (String(device.external_id).includes(`:${SCENARIO_TYPE}:`)) {
-      throw new Error('A scenario button cannot be commanded from Gladys');
+      return this.#launchScenario(circuit, value);
     }
     if (value !== 0 && value !== 1) {
       throw new Error(`Unsupported value ${value}: a light only accepts 0 or 1`);
@@ -123,6 +129,32 @@ export class LegrandIntegration {
     if (isNew) this.#save();
     await this.#publish(feature.external_id, on ? 1 : 0, `light:${circuit.key}`);
     this.#propagate(circuit.key, on, true);
+  }
+
+  /**
+   * Launch a scenario key from Gladys: ONE frame on the bus (the receivers that
+   * learned this scenario do the rest). The click is not published back to Gladys,
+   * only the linked lights are updated on the Gladys side, like for a wall press.
+   */
+  async #launchScenario(circuit, value) {
+    if (value !== 1) {
+      throw new Error(`Unsupported value ${value}: a scenario button only accepts 1 (click)`);
+    }
+    if (!this.gateway) {
+      throw new Error('The serial gateway is not configured');
+    }
+    // Remembered before the send, so even an immediate echo is recognised.
+    this.launchedAt.set(circuit.key, this.now());
+    try {
+      await this.gateway.launchScenario({ legrandId: circuit.legrandId, unit: circuit.unit });
+    } catch (error) {
+      this.launchedAt.delete(circuit.key);
+      throw error;
+    }
+    this.launchedAt.set(circuit.key, this.now());
+    this.logger.info(`Sent ${encodeScenarioCommand({ legrandId: circuit.legrandId, unit: circuit.unit })} (scenario ${circuit.key} launched from Gladys)`);
+
+    this.#propagate(circuit.key, null, false);
   }
 
   // ---- bus -> Gladys ------------------------------------------------------------
@@ -151,6 +183,11 @@ export class LegrandIntegration {
       // Every frame is a chance to resync the linked lights, even without a change here.
       this.#propagate(circuit.key, circuit.on, true);
     } else if (kind === 'scenario' && triggered) {
+      const sentAt = this.launchedAt.get(circuit.key);
+      if (sentAt !== undefined && this.now() - sentAt <= ECHO_WINDOW_MS) {
+        this.logger.info(`Scenario ${circuit.key} frame ignored: it is the echo of a launch from Gladys (frame ${frame.raw})`);
+        return;
+      }
       // A button click is an event: it is published every time, not only on change.
       this.logger.info(`Scenario ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)}) clicked (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
@@ -234,7 +271,7 @@ export class LegrandIntegration {
     };
   }
 
-  /** Gladys device description of one scenario: a button that clicks. */
+  /** Gladys device description of one scenario: a button that clicks (and that Gladys can click). */
   buildScenarioDevice(circuit) {
     const ids = this.gladys.externalIds(SCENARIO_TYPE, circuit.key);
     return {
@@ -253,7 +290,7 @@ export class LegrandIntegration {
           type: this.constants.scenario.type,
           min: 0,
           max: 1,
-          read_only: true,
+          read_only: false,
           has_feedback: false,
           keep_history: false,
         },

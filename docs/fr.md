@@ -20,7 +20,7 @@ Si un interrupteur n'apparaît pas, appuyez dessus de nouveau et relancez la rec
 
 - Allume et éteint les lumières depuis Gladys (tableau de bord, scènes, voix).
 - Met à jour l'état dans Gladys quand un interrupteur mural est utilisé.
-- Affiche chaque bouton de scénario Legrand comme un bouton dans Gladys (`Legrand scenario <id>-<unité>`). Il « clique » quand le scénario est lancé : vous pouvez l'utiliser comme déclencheur dans les scènes Gladys.
+- Affiche chaque bouton de scénario Legrand comme un bouton dans Gladys (`Legrand scenario <id>-<unité>`). Il « clique » quand le scénario est lancé sur une touche murale : vous pouvez l'utiliser comme déclencheur dans les scènes Gladys. Inversement, une scène Gladys peut **cliquer** sur ce bouton pour lancer le scénario Legrand (voir « Lancer un scénario Legrand depuis Gladys »).
 
 ## Appareils liés
 
@@ -90,8 +90,21 @@ D'après le guide technique Céliane. Seules les quatre références ci-dessus o
 
 Si vous testez l'une de ces références, dites-le sur le dépôt GitHub du projet : le tableau sera mis à jour.
 
+## Envoi des commandes
+
+L'interface 882 13 émet une commande à la fois sur le courant porteur et refuse celle qui arrive pendant qu'elle émet encore la précédente. L'intégration envoie donc les commandes une par une : elle attend la réponse de l'interface (acceptée ou refusée) puis une courte pause avant la suivante, et renvoie jusqu'à trois fois une commande refusée. Une commande toujours refusée est signalée en échec dans Gladys, et l'état affiché ne change pas. Une scène qui commande dix lampes prend ainsi quelques secondes.
+
+## Lancer un scénario Legrand depuis Gladys
+
+Dans une scène Gladys, ajoutez l'action « Contrôler un appareil », choisissez `Legrand scenario <id>-<unité>` et cliquez sur le bouton. L'intégration envoie **une seule trame** sur le courant porteur (`*25*11*#<adresse>##`) : les récepteurs qui ont appris ce scénario font le reste. Cela coûte une trame, quel que soit le nombre de lampes : c'est la bonne façon d'éteindre ou d'allumer beaucoup de lampes d'un coup.
+
+- Un scénario qui n'a été programmé sur aucun récepteur ne fait rien.
+- Appuyer sur la touche murale ne fait qu'écouter : l'intégration n'envoie jamais rien en réponse à une trame reçue.
+- Un scénario lancé depuis Gladys ne déclenche pas de « clic » en retour dans Gladys (pas de boucle avec une scène déclenchée par ce même bouton). Les appareils liés sont mis à jour dans Gladys comme pour un appui mural.
+- Les appareils scénario créés avec une version antérieure à la 0.5.0 sont en lecture seule : supprimez-les dans Gladys et refaites une découverte pour qu'ils puissent être cliqués.
+
 ## Limites de cette version
 
 - Le bus ne signale jamais l'état réel d'un récepteur. L'état affiché dans Gladys est déduit des trames et des commandes envoyées : il peut se décaler (par exemple après un scénario Legrand qui éteint des lampes). Une commande depuis Gladys le remet toujours d'accord.
 - Pour tenir Gladys à jour après un scénario Legrand, utilisez les appareils liés (règle `scénario -> lampe=on`).
-- Lumières tout ou rien uniquement : pas de variateurs, pas de volets, et Gladys ne peut pas lancer un scénario Legrand.
+- Lumières tout ou rien uniquement : pas de variateurs, pas de volets. Les scénarios se lancent mais ne se programment pas depuis Gladys : ils doivent avoir été appris par les récepteurs (procédure Legrand).

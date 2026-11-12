@@ -4,7 +4,7 @@ Unofficial external integration for [Gladys Assistant](https://gladysassistant.c
 Legrand **In One by Legrand** (PLC / CPL) lights through the Legrand **882 13** USB interface.
 Formerly known as *Boxio* in the Jeedom community.
 
-> Not affiliated with Legrand. Status: **version 0.4.0** (lights, linked devices, scenario buttons; not released yet).
+> Not affiliated with Legrand. Status: **version 0.5.0** (lights, linked devices, scenario buttons you can also launch from Gladys), published in the Gladys catalog.
 
 ## Roadmap
 

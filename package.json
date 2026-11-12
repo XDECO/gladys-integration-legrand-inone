@@ -1,6 +1,6 @@
 {
   "name": "gladys-integration-legrand-inone",
-  "version": "0.0.1",
+  "version": "0.5.0",
   "description": "Unofficial Gladys Assistant external integration for Legrand In One (PLC) lights through the 882 13 USB interface",
   "license": "Apache-2.0",
   "author": "XDECO",

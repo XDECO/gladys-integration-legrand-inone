@@ -137,6 +137,16 @@ export function encodeLightCommand({ legrandId, unit, on }) {
 }
 
 /**
+ * Build the frame that launches a scenario (WHO 25, WHAT 11 "action") on the
+ * scenario key of the given module. One frame, no matter how many lights the
+ * scenario drives: the receivers that learned it do the rest on their own.
+ */
+export function encodeScenarioCommand({ legrandId, unit }) {
+  const address = addressFromIdUnit(legrandId, unit);
+  return `*25*11*#${address}##`;
+}
+
+/**
  * Stable identifier of one circuit, usable as a Gladys external id.
  * Example: 944559 unit 1 -> "944559-1"
  */
