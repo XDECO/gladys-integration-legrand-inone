@@ -1,6 +1,6 @@
 # Legrand In One CPL
 
-Unofficial integration, not affiliated with Legrand. It turns on and off the lights of a Legrand In One (powerline, "CPL") installation from Gladys, and shows their state when someone presses a wall switch.
+Unofficial integration, not affiliated with Legrand. It controls the lights, dimmers and roller shutters of a Legrand In One (powerline, "CPL") installation from Gladys, and shows their state when someone presses a wall switch.
 
 ## What you need
 
@@ -12,13 +12,15 @@ Unofficial integration, not affiliated with Legrand. It turns on and off the lig
 1. Start the serial gateway container. By default it listens on `172.17.0.1:2000`.
 2. Install this integration and check the address and port in its settings.
 3. **Press each wall switch once.** The Legrand bus cannot list its devices, so the integration learns each circuit from the frames the switches send when they are pressed.
-4. Open the Discovery tab and run a scan. Each circuit seen on the bus appears as a light named `Legrand <id>-<unit>`, followed in brackets by the kind of device: `(inter)` for a switch, `(inter scenario)` for the on/off key of a scenario switch. This is deduced from the keys heard so far: a scenario switch whose on/off key alone was pressed first shows as `(inter)`, then turns to `(inter scenario)` once one of its scene keys is heard. Create the circuits you want and rename them.
+4. Open the Discovery tab and run a scan. Each circuit seen on the bus appears as a light named `Legrand <id>-<unit>` (or a shutter `Legrand volet <id>-<unit>`), followed in brackets by the kind of device: `(inter)` for a switch, `(variateur)` for a dimmer key, `(inter volet)` for a shutter switch, `(inter scenario)` for the on/off key of a scenario switch. This is deduced from the keys heard so far: a scenario switch whose on/off key alone was pressed first shows as `(inter)`, then turns to `(inter scenario)` once one of its scene keys is heard. Create the circuits you want and rename them.
 
 If a switch does not appear, press it again and rescan. The list of known circuits is kept across restarts.
 
 ## What it does
 
 - Turns lights on and off from Gladys (dashboard, scenes, voice).
+- Sets the level of dimmers (brightness 20 to 100 %, see "Dimmers").
+- Raises, lowers and stops roller shutters (see "Shutters").
 - Updates the state in Gladys when a wall switch is used.
 - Shows each Legrand scenario button as a button in Gladys (`Legrand scenario <id>-<unit>`). It clicks when the scenario is pressed on a wall key, so you can use it as a trigger in Gladys scenes. Conversely, a Gladys scene can **click** this button to launch the Legrand scenario (see "Launching a Legrand scenario from Gladys").
 
@@ -37,6 +39,26 @@ Several rules in one field: `929520-1 -> 944561-1; 929523-1 -> 944561-1`.
 
 - With a light on the left, the lights on the right copy its state (on, off), whether it comes from a wall switch or from a command in Gladys.
 - With a scenario button on the left, each light on the right takes the fixed state written after `=` (`on` or `off`).
+
+## Dimmers
+
+An In One dimmer (672 10, 672 12, 672 14, plug-in dimmer 672 22, DIN dimmer 036 10...) speaks the same language as a switch, plus **level** orders (20 to 100 % in steps of 10) and dim up / dim down orders. As soon as the integration hears a level frame on a circuit, it treats it as a dimmer: run a scan again and the Gladys device gets a **brightness** of 0 to 100 % next to its on/off.
+
+- If your dimmer never sends a level frame (short presses only), list its circuit in the **Dimmers** setting (`944559-1, 944560-2`): the brightness is added at the next scan.
+- From Gladys, a brightness of 0 switches off; any other value is rounded to the nearest step (1 to 24 → 20 %, 55 → 60 %). The value really sent is shown back in Gladys.
+- A wall "dim up" or "dim down" key does not say the level reached: Gladys keeps the last known level.
+
+**This part follows the Open Web Net specification but has not been verified on a real dimmer yet.** If you own one, a report on the GitHub repository (frames seen in the logs, result of the commands) will validate it.
+
+## Shutters
+
+An In One shutter switch (672 51, 672 55, 672 56, controls 672 53 / 672 54) sends **up**, **down** and **stop** orders. Each key heard appears at discovery as a shutter `Legrand volet <id>-<unit>` with a three-position control in Gladys: open, stop, close.
+
+- The state shown is the **last order** heard or sent, not the real position: the bus does not know it.
+- On a shutter switch a short press starts a full travel and a long press is for adjusting; from Gladys the integration sends the order as is. A moving shutter stops with "stop".
+- Shutters take no part in the "Linked devices" rules (lights only).
+
+**This part follows the Open Web Net specification but has not been verified on a real shutter yet.** Same request: if you test it, say so on the GitHub repository.
 
 ## Tested hardware
 
@@ -57,7 +79,7 @@ So a device `Legrand 944559-1` in Gladys is **a transmitter key** (identifier 94
 
 ## References of the In One PLC range
 
-From the Céliane technical guide. Only the four references above were tested; for the others the "Expected" column says what the protocol suggests, **without verification**.
+From the Céliane technical guide. Only the four references above were tested; for the others the "Expected" column says what the protocol suggests, **without verification**. Since version 0.6.0 the whole PLC range for lighting, dimming and shutters is covered by the code: only testers are missing.
 
 **Lighting**
 
@@ -68,8 +90,9 @@ From the Céliane technical guide. Only the four references above were tested; f
 | 672 03 / 672 04 | Single / double switch with indicator | Like 672 01 / 672 02: should work (the indicator is local, nothing on the bus) |
 | 672 08 | Lighting scenario switch (on/off + 2 scenarios) | **Tested** |
 | 672 15 | Automatic switch 1,000 W (motion detector) | Should send on/off orders like a switch |
-| 672 10 / 672 12 / 672 14, 036 10 | Dimmers 300 W, 600 W and DIN dimmer 1,000 W | On/off only; no level control in this version |
-| 882 03 | Plug-in dimmer 500 W | On/off only |
+| 672 10 / 672 12 / 672 14, 036 10 | Dimmers 300 W, 600 W and DIN dimmer 1,000 W | On/off + brightness 20–100 % (see "Dimmers"); to be verified |
+| 672 22 | Plug-in dimmer receiver | Like a dimmer; to be verified |
+| 882 03 | Plug-in dimmer 500 W | Like a dimmer; to be verified |
 | 882 00, 882 01, 882 15, 882 20 | Infrared/radio remotes and scenario controls | No: they do not use the PLC bus, except through a PLC/IR receiver that relays |
 
 **Scenarios**
@@ -83,8 +106,9 @@ From the Céliane technical guide. Only the four references above were tested; f
 
 | Reference | Product | Expected |
 |---|---|---|
-| 672 51 / 672 55 / 672 56 | Individual shutter switch (plain, with override, with programmable level) | Not supported in this version (up/down/stop orders, another family of the protocol) |
-| 672 53 / 672 54 | Central control / group control (4 zones) | Not supported in this version |
+| 672 51 / 672 55 / 672 56 | Individual shutter switch (plain, with override, with programmable level) | Up / down / stop (see "Shutters"); to be verified |
+| 672 53 / 672 54 | Central control / group control (4 zones) | Each key should appear as a shutter; to be verified |
+| 672 62 | Radio central shutter switch | No: radio, unless relayed by the PLC/RF interface 036 06 |
 
 **Heating, detectors, interfaces**: thermostats 674 40 / 674 42, cable outlet 674 45, local override 674 48, programmer 674 49, detectors 675 22 / 675 23 / 675 24, interfaces 036 06 / 036 07 / 036 18 — outside the scope of this integration. Filters 882 12 / 882 21 / 882 23 are passive accessories.
 
@@ -107,4 +131,5 @@ In a Gladys scene, add the "Control device" action, pick `Legrand scenario <id>-
 
 - The bus never reports the real state of a receiver. The state shown in Gladys is deduced from the frames and from the commands sent, so it can drift (for example after a Legrand scenario that switches lights off). A command from Gladys always puts it back in line.
 - To keep Gladys up to date after a Legrand scenario, use linked devices (rule `scenario -> light=on`).
-- On/off lights only: no dimmers, no shutters. Scenarios can be launched but not programmed from Gladys: the receivers must have learned them (Legrand procedure).
+- Dimmers and shutters: written from the Open Web Net specification, not yet verified on hardware. A dimmer level is only known after a level frame; a shutter position is never known (only the last order is).
+- Scenarios can be launched but not programmed from Gladys: the receivers must have learned them (Legrand procedure).

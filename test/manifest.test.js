@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GladysIntegration, DEVICE_FEATURE_CATEGORIES, DEVICE_FEATURE_TYPES } from '@gladysassistant/integration-sdk';
-import { DEFAULT_HOST, DEFAULT_PORT, LINK_FIELDS, parseLinks } from '../src/config.js';
+import { DEFAULT_HOST, DEFAULT_PORT, LINK_FIELDS, parseDimmers, parseLinks } from '../src/config.js';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const manifest = JSON.parse(read('gladys-assistant-integration.json'));
@@ -33,7 +33,7 @@ test('package.json pins the SDK version and the license', () => {
 
 test('config_schema fields are valid and match the code defaults', () => {
   const keys = manifest.config_schema.map((f) => f.key);
-  assert.deepEqual(keys, ['host', 'port', 'links_help', ...Array.from({ length: 12 }, (_, i) => `link_${i + 1}`)]);
+  assert.deepEqual(keys, ['host', 'port', 'dimmers', 'links_help', ...Array.from({ length: 12 }, (_, i) => `link_${i + 1}`)]);
   for (const field of manifest.config_schema) {
     assert.match(field.key, /^[a-z0-9_]+$/);
     assert.ok(field.label.en, `${field.key} needs an English label`);
@@ -54,6 +54,10 @@ test('config_schema fields are valid and match the code defaults', () => {
     assert.ok(parseLinks(rule.placeholder.en).size > 0, `the placeholder of rule ${index} is a valid example`);
   }
   assert.ok(port.default >= port.min && port.default <= port.max);
+  const dimmers = manifest.config_schema.find((f) => f.key === 'dimmers');
+  assert.equal(dimmers.type, 'string');
+  assert.ok(!dimmers.required);
+  assert.equal(parseDimmers(dimmers.placeholder.en).size, 2, 'the dimmers placeholder is a valid example');
 });
 
 test('documentation exists in English and French, at least 300 characters each', () => {

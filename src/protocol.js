@@ -12,21 +12,41 @@
  *   - a light is driven with the direct form   WHERE = "#<address>"
  *     (the plain form "<address>" and the broadcast form did NOT work)
  *
+ * Taken from the Open Web Net specification (the language the 882 13 speaks)
+ * but NOT yet verified on hardware, for lack of a tester:
+ *   - WHO 1 WHAT 2..10 = dimmer level 20..100 %, WHAT 30 / 31 = dim up / down
+ *   - WHO 2 = shutter, WHAT 1 = up, WHAT 2 = down, WHAT 0 = stop
+ *
  * Anything else is kept as-is (raw) and reported as unsupported rather than
  * guessed.
  */
 
 export const MAX_UNIT = 15;
 
+/** Dimmer levels: WHAT 2..10 = 20..100 % (Open Web Net). */
+export const MIN_LEVEL_WHAT = 2;
+export const MAX_LEVEL_WHAT = 10;
+export const MIN_LEVEL_PERCENT = MIN_LEVEL_WHAT * 10;
+
+/** Shutter states, the values Gladys uses for a shutter "state" feature. */
+export const SHUTTER_UP = 1;
+export const SHUTTER_DOWN = -1;
+export const SHUTTER_STOP = 0;
+
 const WHO_NAMES = new Map([
   [1, 'light'],
+  [2, 'shutter'],
   [25, 'scenario'],
 ]);
 
 const WHAT_NAMES = new Map([
-  ['light', new Map([[1, 'on'], [0, 'off']])],
+  ['light', new Map([[1, 'on'], [0, 'off'], [30, 'dim_up'], [31, 'dim_down']])],
+  ['shutter', new Map([[1, 'up'], [2, 'down'], [0, 'stop']])],
   ['scenario', new Map([[11, 'action'], [16, 'stop_action']])],
 ]);
+for (let what = MIN_LEVEL_WHAT; what <= MAX_LEVEL_WHAT; what += 1) {
+  WHAT_NAMES.get('light').set(what, 'level');
+}
 
 /**
  * Combine a Legrand id and a unit number into the numeric address used in frames.
@@ -119,8 +139,37 @@ export function parseFrame(text) {
  */
 export function lightStateFromFrame(frame) {
   if (frame?.type !== 'command' || frame.whoName !== 'light') return null;
-  if (frame.whatName === 'on') return true;
+  if (frame.whatName === 'on' || frame.whatName === 'level') return true;
   if (frame.whatName === 'off') return false;
+  return null;
+}
+
+/**
+ * Dimmer level (20..100, in percent) carried by a parsed frame, or null when the
+ * frame is not a level report (WHO 1, WHAT 2..10).
+ */
+export function lightLevelFromFrame(frame) {
+  if (frame?.type !== 'command' || frame.whoName !== 'light' || frame.whatName !== 'level') return null;
+  return frame.what * 10;
+}
+
+/**
+ * True when the frame comes from a dimmer key: a level, or a dim up / down press.
+ */
+export function isDimmerFrame(frame) {
+  return frame?.type === 'command' && frame.whoName === 'light'
+    && (frame.whatName === 'level' || frame.whatName === 'dim_up' || frame.whatName === 'dim_down');
+}
+
+/**
+ * Shutter movement carried by a parsed frame: SHUTTER_UP, SHUTTER_DOWN,
+ * SHUTTER_STOP, or null when the frame is not a shutter order (WHO 2).
+ */
+export function shutterStateFromFrame(frame) {
+  if (frame?.type !== 'command' || frame.whoName !== 'shutter') return null;
+  if (frame.whatName === 'up') return SHUTTER_UP;
+  if (frame.whatName === 'down') return SHUTTER_DOWN;
+  if (frame.whatName === 'stop') return SHUTTER_STOP;
   return null;
 }
 
@@ -134,6 +183,43 @@ export function encodeLightCommand({ legrandId, unit, on }) {
   }
   const address = addressFromIdUnit(legrandId, unit);
   return `*1*${on ? 1 : 0}*#${address}##`;
+}
+
+/**
+ * Build the frame that sets a dimmer to a level given in percent (0..100).
+ * 0 switches the light off; anything else is rounded to the nearest Open Web
+ * Net step (WHAT 2..10 = 20..100 %), so 1..24 % gives 20 %.
+ */
+export function encodeLightLevelCommand({ legrandId, unit, level }) {
+  if (!Number.isFinite(level) || level < 0 || level > 100) {
+    throw new RangeError(`Invalid level (expected 0..100): ${level}`);
+  }
+  const address = addressFromIdUnit(legrandId, unit);
+  if (level === 0) return `*1*0*#${address}##`;
+  const what = Math.min(MAX_LEVEL_WHAT, Math.max(MIN_LEVEL_WHAT, Math.round(level / 10)));
+  return `*1*${what}*#${address}##`;
+}
+
+/**
+ * Percent level that encodeLightLevelCommand() will really send for a
+ * requested level: 0, or a multiple of 10 between 20 and 100.
+ */
+export function effectiveLevel(level) {
+  if (level === 0) return 0;
+  return Math.min(MAX_LEVEL_WHAT, Math.max(MIN_LEVEL_WHAT, Math.round(level / 10))) * 10;
+}
+
+/**
+ * Build the frame that moves a shutter: state SHUTTER_UP (1), SHUTTER_DOWN (-1)
+ * or SHUTTER_STOP (0). Same direct addressing form as the lights.
+ */
+export function encodeShutterCommand({ legrandId, unit, state }) {
+  const what = typeof state === 'number' ? { [SHUTTER_UP]: 1, [SHUTTER_DOWN]: 2, [SHUTTER_STOP]: 0 }[state] : undefined;
+  if (what === undefined) {
+    throw new RangeError(`Invalid shutter state (expected 1, -1 or 0): ${state}`);
+  }
+  const address = addressFromIdUnit(legrandId, unit);
+  return `*2*${what}*#${address}##`;
 }
 
 /**

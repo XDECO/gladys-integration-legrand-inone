@@ -31,6 +31,14 @@ const integration = new LegrandIntegration({
       category: DEVICE_FEATURE_CATEGORIES.LIGHT,
       type: DEVICE_FEATURE_TYPES.LIGHT.BINARY,
     },
+    brightness: {
+      category: DEVICE_FEATURE_CATEGORIES.LIGHT,
+      type: DEVICE_FEATURE_TYPES.LIGHT.BRIGHTNESS,
+    },
+    shutter: {
+      category: DEVICE_FEATURE_CATEGORIES.SHUTTER,
+      type: DEVICE_FEATURE_TYPES.SHUTTER.STATE,
+    },
     scenario: {
       category: DEVICE_FEATURE_CATEGORIES.BUTTON,
       type: DEVICE_FEATURE_TYPES.BUTTON.CLICK,

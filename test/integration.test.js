@@ -8,6 +8,8 @@ import { parseFrame } from '../src/protocol.js';
 
 const CONSTANTS = {
   light: { category: 'light', type: 'binary' },
+  brightness: { category: 'light', type: 'brightness' },
+  shutter: { category: 'shutter', type: 'state' },
   scenario: { category: 'button', type: 'click' },
 };
 // 15112945 = 944559 * 16 + 1  -> circuit "944559-1"
@@ -38,6 +40,17 @@ class FakeGateway extends EventEmitter {
     this.setLightError = null;
     this.scenarios = [];
     this.launchError = null;
+    this.levels = [];
+    this.shutters = [];
+    this.shutterError = null;
+  }
+  async setLightLevel(command) {
+    if (this.setLightError) throw this.setLightError;
+    this.levels.push(command);
+  }
+  async setShutter(command) {
+    if (this.shutterError) throw this.shutterError;
+    this.shutters.push(command);
   }
   async launchScenario(command) {
     if (this.launchError) throw this.launchError;
@@ -127,14 +140,14 @@ test('start opens the gateway with the configured host and port', async () => {
   const gladys = fakeGladys({ config: { host: '192.168.1.9', port: 4001 } });
   const { gateway, gateways } = await setup({ gladys });
   assert.equal(gateways.length, 1);
-  assert.deepEqual(gateway.config, { host: '192.168.1.9', port: 4001, links: new Map() });
+  assert.deepEqual(gateway.config, { host: '192.168.1.9', port: 4001, links: new Map(), dimmers: new Set() });
   assert.equal(gateway.started, 1);
 });
 
 test('start falls back to the defaults when the settings cannot be read', async () => {
   const gladys = fakeGladys({ configError: new Error('boom') });
   const { gateway, logger } = await setup({ gladys });
-  assert.deepEqual(gateway.config, { host: '172.17.0.1', port: 2000, links: new Map() });
+  assert.deepEqual(gateway.config, { host: '172.17.0.1', port: 2000, links: new Map(), dimmers: new Set() });
   assert.equal(logger.logs.warn.length, 1);
 });
 
@@ -158,7 +171,7 @@ test('a frame from a new circuit is published, remembered and saved', async () =
   gateway.emit('frame', ON);
   await tick();
   assert.deepEqual(gladys.published, [[FEATURE_ID, 1]]);
-  assert.deepEqual(storage.writes, [{ version: 2, circuits: [{ legrandId: 944559, unit: 1 }], scenarios: [] }]);
+  assert.deepEqual(storage.writes, [{ version: 3, circuits: [{ legrandId: 944559, unit: 1 }], shutters: [], scenarios: [] }]);
 });
 
 test('the log tells the bus address to type in the push button setting', async () => {
@@ -318,7 +331,7 @@ test('a command on a circuit never seen before saves it', async () => {
   const { gladys, storage } = await setup();
   await gladys.handlers.setValue(DEVICE, FEATURE, 1);
   await tick();
-  assert.deepEqual(storage.writes, [{ version: 2, circuits: [{ legrandId: 944559, unit: 1 }], scenarios: [] }]);
+  assert.deepEqual(storage.writes, [{ version: 3, circuits: [{ legrandId: 944559, unit: 1 }], shutters: [], scenarios: [] }]);
 });
 
 test('a command does not fail when only the state publication fails', async () => {
@@ -356,7 +369,7 @@ test('a settings change to another gateway closes the old one and opens a new on
   await gladys.handlers.configUpdated({ host: '10.0.0.5', port: 2001 });
   assert.equal(gateway.stopped, 1);
   assert.equal(gateways.length, 2);
-  assert.deepEqual(gateways[1].config, { host: '10.0.0.5', port: 2001, links: new Map() });
+  assert.deepEqual(gateways[1].config, { host: '10.0.0.5', port: 2001, links: new Map(), dimmers: new Set() });
   assert.equal(gateways[1].started, 1);
 });
 
@@ -452,7 +465,7 @@ test('a new scenario is saved once', async () => {
   gateway.emit('frame', SCENARIO_STOP);
   gateway.emit('frame', SCENARIO_ACTION);
   await tick();
-  assert.deepEqual(storage.writes, [{ version: 2, circuits: [], scenarios: [{ legrandId: 648966, unit: 2 }] }]);
+  assert.deepEqual(storage.writes, [{ version: 3, circuits: [], shutters: [], scenarios: [{ legrandId: 648966, unit: 2 }] }]);
 });
 
 test('scan lists scenarios as buttons Gladys can click, next to the lights', async () => {
@@ -759,4 +772,175 @@ test('a failing publish for a light does not silence the warning for a scenario'
   gateway.emit('frame', SCENARIO_ACTION);
   await tick();
   assert.equal(logger.logs.warn.length, 2);
+});
+
+// ---- dimmers -------------------------------------------------------------------
+
+const LEVEL_70 = parseFrame('*1*7*0#15112945##'); // 944559-1 at 70 %
+const BRIGHTNESS_ID = 'ext:sel:light:944559-1:brightness';
+const BRIGHTNESS = { external_id: BRIGHTNESS_ID };
+
+test('a level frame publishes the brightness and the on state, and the dimmer is saved', async () => {
+  const { gladys, gateway, storage, logger } = await setup();
+  gateway.emit('frame', LEVEL_70);
+  await tick();
+  assert.deepEqual(gladys.published, [[BRIGHTNESS_ID, 70], [FEATURE_ID, 1]]);
+  assert.deepEqual(storage.writes, [{ version: 3, circuits: [{ legrandId: 944559, unit: 1, dimmable: true }], shutters: [], scenarios: [] }]);
+
+  // off on a dimmer: brightness 0
+  gateway.emit('frame', OFF);
+  await tick();
+  assert.deepEqual(gladys.published.slice(2), [[BRIGHTNESS_ID, 0], [FEATURE_ID, 0]]);
+
+  // a plain "on" does not invent a level
+  gateway.emit('frame', ON);
+  await tick();
+  assert.deepEqual(gladys.published.slice(4), [[FEATURE_ID, 1]]);
+  assert.ok(logger.logs.info.some((a) => a.join(' ').includes('is a dimmer')) === false, 'new circuit: no second save line');
+});
+
+test('a light already known becomes a dimmer on its first level frame, saved once', async () => {
+  const { gladys, gateway, storage, logger } = await setup();
+  gateway.emit('frame', ON);
+  gateway.emit('frame', LEVEL_70);
+  gateway.emit('frame', parseFrame('*1*8*0#15112945##'));
+  await tick();
+  assert.equal(storage.writes.length, 2);
+  assert.ok(logger.logs.info.some((a) => a.join(' ').includes('Light 944559-1 is a dimmer')));
+  assert.deepEqual(gladys.published, [[FEATURE_ID, 1], [BRIGHTNESS_ID, 70], [BRIGHTNESS_ID, 80]]);
+  await gladys.handlers.scan();
+  const device = gladys.discovered[0][0];
+  assert.equal(device.name, 'Legrand 944559-1 (variateur)');
+  assert.deepEqual(device.features.map((f) => [f.external_id, f.type, f.min, f.max]), [
+    [FEATURE_ID, 'binary', 0, 1],
+    [BRIGHTNESS_ID, 'brightness', 0, 100],
+  ]);
+});
+
+test('a light without a dimmer frame has no brightness feature', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.emit('frame', ON);
+  await gladys.handlers.scan();
+  assert.deepEqual(gladys.discovered[0][0].features.map((f) => f.type), ['binary']);
+});
+
+test('the "dimmers" setting declares a dimmer before any frame, and on a settings change', async () => {
+  const gladys = fakeGladys({ config: { dimmers: '944559-1' } });
+  const { storage, logger } = await setup({ gladys });
+  assert.equal(storage.writes.length, 1);
+  assert.ok(logger.logs.info.some((a) => a.join(' ').includes('944559-1 declared as a dimmer')));
+  await gladys.handlers.scan();
+  assert.deepEqual(gladys.discovered[0][0].features.map((f) => f.type), ['binary', 'brightness']);
+
+  await gladys.handlers.configUpdated({ dimmers: '944559-1, 944559-2' });
+  await tick();
+  assert.equal(storage.writes.length, 2);
+  await gladys.handlers.scan();
+  assert.equal(gladys.discovered[1].length, 2);
+  // the same setting again changes nothing
+  await gladys.handlers.configUpdated({ dimmers: '944559-1, 944559-2' });
+  await tick();
+  assert.equal(storage.writes.length, 2);
+});
+
+test('a brightness command sends the level frame and publishes the level really sent', async () => {
+  const { gladys, gateway } = await setup();
+  await gladys.handlers.setValue(DEVICE, BRIGHTNESS, 55);
+  assert.deepEqual(gateway.levels, [{ legrandId: 944559, unit: 1, level: 55 }]);
+  assert.deepEqual(gateway.commands, []);
+  assert.deepEqual(gladys.published, [[BRIGHTNESS_ID, 60], [FEATURE_ID, 1]]);
+
+  await gladys.handlers.setValue(DEVICE, BRIGHTNESS, 0);
+  assert.deepEqual(gladys.published.slice(2), [[BRIGHTNESS_ID, 0], [FEATURE_ID, 0]]);
+  await assert.rejects(() => gladys.handlers.setValue(DEVICE, BRIGHTNESS, 150), /0 to 100/);
+  await assert.rejects(() => gladys.handlers.setValue(DEVICE, BRIGHTNESS, 'abc'), /0 to 100/);
+});
+
+test('a brightness command that cannot be written is thrown, nothing published', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.setLightError = new GatewayError('NOT_CONNECTED', 'down');
+  await assert.rejects(() => gladys.handlers.setValue(DEVICE, BRIGHTNESS, 40), /down/);
+  assert.deepEqual(gladys.published, []);
+});
+
+test('a brightness command drives the linked lights like an on/off', async () => {
+  const gladys = fakeGladys({ config: { link_1: '944559-1 -> 944559-2' } });
+  const { gateway } = await setup({ gladys });
+  await gladys.handlers.setValue(DEVICE, BRIGHTNESS, 30);
+  assert.deepEqual(gladys.published, [[BRIGHTNESS_ID, 30], [FEATURE_ID, 1], ['ext:sel:light:944559-2:binary', 1]]);
+  assert.equal(gateway.levels.length, 1);
+});
+
+// ---- shutters ------------------------------------------------------------------
+
+const SHUTTER_UP = parseFrame('*2*1*0#15136865##'); // 946054-1 up
+const SHUTTER_DOWN = parseFrame('*2*2*0#15136865##');
+const SHUTTER_STOP = parseFrame('*2*0*0#15136865##');
+const SHUTTER_ID = 'ext:sel:shutter:946054-1:state';
+const SHUTTER_DEVICE = { external_id: 'ext:sel:shutter:946054-1' };
+const SHUTTER_FEATURE = { external_id: SHUTTER_ID };
+
+test('shutter frames create a shutter device and publish its last order', async () => {
+  const { gladys, gateway, storage, logger } = await setup();
+  gateway.emit('frame', SHUTTER_UP);
+  gateway.emit('frame', SHUTTER_UP); // no change
+  gateway.emit('frame', SHUTTER_STOP);
+  gateway.emit('frame', SHUTTER_DOWN);
+  await tick();
+  assert.deepEqual(gladys.published, [[SHUTTER_ID, 1], [SHUTTER_ID, 0], [SHUTTER_ID, -1]]);
+  assert.deepEqual(storage.writes, [{ version: 3, circuits: [], shutters: [{ legrandId: 946054, unit: 1 }], scenarios: [] }]);
+  const lines = logger.logs.info.map((a) => a.join(' '));
+  assert.ok(lines.some((l) => l.includes('New shutter seen on the bus: 946054-1 (address 15136865)')), lines.join('\n'));
+  assert.ok(lines.some((l) => l.includes('Shutter 946054-1 (address 15136865) down')), lines.join('\n'));
+
+  await gladys.handlers.scan();
+  const device = gladys.discovered[0][0];
+  assert.equal(device.name, 'Legrand volet 946054-1 (inter volet)');
+  assert.equal(device.external_id, 'ext:sel:shutter:946054-1');
+  assert.deepEqual(device.params, [
+    { name: 'LEGRAND_ID', value: '946054' },
+    { name: 'UNIT', value: '1' },
+    { name: 'PRODUCT_HINT', value: 'inter volet' },
+  ]);
+  assert.deepEqual(device.features.map((f) => [f.external_id, f.category, f.type, f.min, f.max, f.has_feedback]), [
+    [SHUTTER_ID, 'shutter', 'state', -1, 1, true],
+  ]);
+});
+
+test('a shutter command sends the frame, publishes the order and saves a new shutter', async () => {
+  const { gladys, gateway, storage } = await setup();
+  await gladys.handlers.setValue(SHUTTER_DEVICE, SHUTTER_FEATURE, 1);
+  await gladys.handlers.setValue(SHUTTER_DEVICE, SHUTTER_FEATURE, 0);
+  await gladys.handlers.setValue(SHUTTER_DEVICE, SHUTTER_FEATURE, -1);
+  await tick();
+  assert.deepEqual(gateway.shutters, [
+    { legrandId: 946054, unit: 1, state: 1 },
+    { legrandId: 946054, unit: 1, state: 0 },
+    { legrandId: 946054, unit: 1, state: -1 },
+  ]);
+  assert.deepEqual(gateway.commands, []);
+  assert.deepEqual(gladys.published, [[SHUTTER_ID, 1], [SHUTTER_ID, 0], [SHUTTER_ID, -1]]);
+  assert.equal(storage.writes.length, 1);
+  await assert.rejects(() => gladys.handlers.setValue(SHUTTER_DEVICE, SHUTTER_FEATURE, 2), /1 \(up\)/);
+});
+
+test('a shutter command that cannot be written is thrown, nothing published', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.shutterError = new GatewayError('QUEUE_FULL', 'full');
+  await assert.rejects(() => gladys.handlers.setValue(SHUTTER_DEVICE, SHUTTER_FEATURE, 1), /full/);
+  assert.deepEqual(gladys.published, []);
+});
+
+test('lights, shutters and scenarios are all listed by a scan, in that order', async () => {
+  const { gladys, gateway } = await setup();
+  gateway.emit('frame', SCENARIO_ACTION);
+  gateway.emit('frame', SHUTTER_UP);
+  gateway.emit('frame', ON);
+  await tick();
+  await gladys.handlers.scan();
+  assert.deepEqual(gladys.discovered[0].map((d) => d.external_id), [
+    'ext:sel:light:944559-1',
+    'ext:sel:shutter:946054-1',
+    'ext:sel:scenario:648966-2',
+  ]);
 });

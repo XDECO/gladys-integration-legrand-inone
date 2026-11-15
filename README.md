@@ -1,10 +1,10 @@
 # Legrand In One CPL — Gladys Assistant integration (work in progress)
 
 Unofficial external integration for [Gladys Assistant](https://gladysassistant.com) to control
-Legrand **In One by Legrand** (PLC / CPL) lights through the Legrand **882 13** USB interface.
+Legrand **In One by Legrand** (PLC / CPL) lights, dimmers and roller shutters through the Legrand **882 13** USB interface.
 Formerly known as *Boxio* in the Jeedom community.
 
-> Not affiliated with Legrand. Status: **version 0.5.0** (lights, linked devices, scenario buttons you can also launch from Gladys), published in the Gladys catalog.
+> Not affiliated with Legrand. Status: **version 0.6.0** (lights, linked devices, scenario buttons you can also launch from Gladys, plus dimmers and shutters written from the Open Web Net specification and waiting for testers), published in the Gladys catalog.
 
 ## Roadmap
 
@@ -15,8 +15,9 @@ Formerly known as *Boxio* in the Jeedom community.
 | 2 | TCP transport (`src/transport.js`: reconnection, paced send) | done |
 | 3 | Gladys layer (manifest, docs, discovery, commands, states) | done |
 | 4 | Docker image and CI (`Dockerfile`, `.github/workflows`) | done |
-| 5 | Acceptance tests on the real installation | todo |
-| 6 | Publication | todo |
+| 5 | Acceptance tests on the real installation | done |
+| 6 | Publication in the Gladys catalog | done |
+| 7 | Whole In One PLC range: dimmers (WHO 1 levels) and shutters (WHO 2) | code done, **needs testers** |
 
 ## Tested hardware
 
@@ -25,7 +26,7 @@ Formerly known as *Boxio* in the Jeedom community.
 - Lighting scenario switch ref. 672 08 and scenario transmitter ref. 672 80
 - Gladys Assistant 5.3 on a Home Assistant Yellow (arm64); the image is also built for amd64
 
-A Gladys device is a *transmitter key* (identifier + direction), not a lamp: the bus only carries transmitter orders, and receivers that learned a transmitter react silently. The rest of the In One PLC range shares the protocol but is untested: on/off switches should work, dimmers only as on/off, roller shutters (WHO 2) are not supported yet, infrared/radio controls are out of scope. The user documentation (`docs/`) has the table by reference. Reports and pull requests are welcome.
+A Gladys device is a *transmitter key* (identifier + direction), not a lamp: the bus only carries transmitter orders, and receivers that learned a transmitter react silently. The rest of the In One PLC range shares the protocol but is untested: on/off switches should work; dimmers (brightness 20..100 %) and roller shutters (up/down/stop) are implemented from the Open Web Net specification and need a tester; infrared/radio controls are out of scope. The user documentation (`docs/`) has the table by reference. Reports and pull requests are welcome.
 
 ## Protocol, as verified on hardware
 
@@ -34,6 +35,12 @@ A Gladys device is a *transmitter key* (identifier + direction), not a lamp: the
 - Received frames are broadcasts: `*1*1*0#<address>##`.
 - To drive a light, send `*1*1*#<address>##` (on) or `*1*0*#<address>##` (off).
   The plain form (`*1*1*<address>##`) and the broadcast form did not work.
+- To launch a scenario, send `*25*11*#<address>##` (one frame, acknowledged with `*#*1##`).
+
+From the Open Web Net specification, **not verified on hardware** (version 0.6.0):
+
+- Dimmer level: WHO `1`, WHAT `2`..`10` = 20..100 %, WHAT `30` / `31` = dim up / down. Sent as `*1*<2..10>*#<address>##`.
+- Shutter: WHO `2`, WHAT `1` up, `2` down, `0` stop. Sent as `*2*<what>*#<address>##`.
 
 ## Development
 

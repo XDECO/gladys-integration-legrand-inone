@@ -7,7 +7,13 @@ import {
   parseFrame,
   lightStateFromFrame,
   encodeLightCommand,
+  encodeLightLevelCommand,
   encodeScenarioCommand,
+  encodeShutterCommand,
+  effectiveLevel,
+  isDimmerFrame,
+  lightLevelFromFrame,
+  shutterStateFromFrame,
   circuitKey,
   FrameDecoder,
 } from '../src/protocol.js';
@@ -113,11 +119,11 @@ test('acknowledgements', () => {
 });
 
 test('unknown codes are kept, not guessed', () => {
-  const frame = parseFrame('*2*1*#9833538##');
+  const frame = parseFrame('*4*1*#9833538##'); // WHO 4 = temperature control: not supported
   assert.equal(frame.type, 'command');
   assert.equal(frame.whoName, null);
   assert.equal(frame.whatName, null);
-  assert.equal(frame.raw, '*2*1*#9833538##');
+  assert.equal(frame.raw, '*4*1*#9833538##');
 
   const unknownWhat = parseFrame('*1*38*0#15112945##');
   assert.equal(unknownWhat.whoName, 'light');
@@ -206,4 +212,69 @@ test('encodeScenarioCommand builds the scenario launch frame', () => {
   assert.equal(encodeScenarioCommand({ legrandId: 648966, unit: 3 }), '*25*11*#10383459##');
   assert.equal(encodeScenarioCommand({ legrandId: 950680, unit: 4 }), '*25*11*#15210884##');
   assert.throws(() => encodeScenarioCommand({ legrandId: 648966, unit: 99 }));
+});
+
+// ---- dimmers (Open Web Net, not verified on hardware) ---------------------------
+
+test('level frames: WHAT 2..10 is a level of 20..100 %, and the light is on', () => {
+  const half = parseFrame('*1*5*0#15112945##');
+  assert.equal(half.whatName, 'level');
+  assert.equal(lightLevelFromFrame(half), 50);
+  assert.equal(lightStateFromFrame(half), true);
+  assert.equal(isDimmerFrame(half), true);
+  assert.equal(lightLevelFromFrame(parseFrame('*1*2*0#15112945##')), 20);
+  assert.equal(lightLevelFromFrame(parseFrame('*1*10*0#15112945##')), 100);
+  assert.equal(lightLevelFromFrame(parseFrame('*1*1*0#15112945##')), null);
+  assert.equal(lightLevelFromFrame(parseFrame('*1*11*0#15112945##')), null);
+  assert.equal(parseFrame('*1*11*0#15112945##').whatName, null);
+});
+
+test('dim up / dim down frames are dimmer frames without a state or a level', () => {
+  const up = parseFrame('*1*30*0#15112945##');
+  assert.equal(up.whatName, 'dim_up');
+  assert.equal(parseFrame('*1*31*0#15112945##').whatName, 'dim_down');
+  assert.equal(isDimmerFrame(up), true);
+  assert.equal(lightStateFromFrame(up), null);
+  assert.equal(lightLevelFromFrame(up), null);
+  assert.equal(isDimmerFrame(parseFrame('*1*1*0#15112945##')), false);
+  assert.equal(isDimmerFrame(null), false);
+});
+
+test('encodeLightLevelCommand rounds to the 20..100 % steps, 0 is off', () => {
+  assert.equal(encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 0 }), '*1*0*#15112945##');
+  assert.equal(encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 1 }), '*1*2*#15112945##');
+  assert.equal(encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 24 }), '*1*2*#15112945##');
+  assert.equal(encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 25 }), '*1*3*#15112945##');
+  assert.equal(encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 50 }), '*1*5*#15112945##');
+  assert.equal(encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 99 }), '*1*10*#15112945##');
+  assert.equal(encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 100 }), '*1*10*#15112945##');
+  assert.throws(() => encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: 101 }), RangeError);
+  assert.throws(() => encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: -1 }), RangeError);
+  assert.throws(() => encodeLightLevelCommand({ legrandId: 944559, unit: 1, level: NaN }), RangeError);
+});
+
+test('effectiveLevel says what level will really be sent', () => {
+  assert.deepEqual([0, 1, 24, 25, 55, 100].map(effectiveLevel), [0, 20, 20, 30, 60, 100]);
+});
+
+// ---- shutters (Open Web Net, not verified on hardware) --------------------------
+
+test('shutter frames: WHO 2, up / down / stop', () => {
+  const up = parseFrame('*2*1*0#15112945##');
+  assert.equal(up.whoName, 'shutter');
+  assert.equal(up.whatName, 'up');
+  assert.equal(shutterStateFromFrame(up), 1);
+  assert.equal(shutterStateFromFrame(parseFrame('*2*2*0#15112945##')), -1);
+  assert.equal(shutterStateFromFrame(parseFrame('*2*0*0#15112945##')), 0);
+  assert.equal(shutterStateFromFrame(parseFrame('*2*9*0#15112945##')), null);
+  assert.equal(shutterStateFromFrame(parseFrame('*1*1*0#15112945##')), null);
+  assert.equal(lightStateFromFrame(up), null, 'a shutter frame is not a light state');
+});
+
+test('encodeShutterCommand uses the direct form like the lights', () => {
+  assert.equal(encodeShutterCommand({ legrandId: 944559, unit: 1, state: 1 }), '*2*1*#15112945##');
+  assert.equal(encodeShutterCommand({ legrandId: 944559, unit: 1, state: -1 }), '*2*2*#15112945##');
+  assert.equal(encodeShutterCommand({ legrandId: 944559, unit: 1, state: 0 }), '*2*0*#15112945##');
+  assert.throws(() => encodeShutterCommand({ legrandId: 944559, unit: 1, state: 2 }), RangeError);
+  assert.throws(() => encodeShutterCommand({ legrandId: 944559, unit: 1, state: '1' }), RangeError);
 });

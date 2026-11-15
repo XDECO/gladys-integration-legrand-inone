@@ -3,11 +3,11 @@
   "type": "device",
   "name": "Legrand In One CPL",
   "description": {
-    "en": "Control Legrand In One (PLC) lights through the 882 13 USB serial interface",
-    "fr": "Pilotez vos éclairages Legrand In One (CPL) via l'interface USB série 882 13"
+    "en": "Control Legrand In One (PLC) lights, dimmers and shutters through the 882 13 USB serial interface",
+    "fr": "Pilotez vos éclairages, variateurs et volets Legrand In One (CPL) via l'interface USB série 882 13"
   },
-  "version": "0.5.0",
-  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.5.0",
+  "version": "0.6.0",
+  "docker_image": "ghcr.io/xdeco/gladys-integration-legrand-inone:0.6.0",
   "gladys_version": ">=4.86.0",
   "categories": [
     "lighting"
@@ -39,6 +39,23 @@
       "min": 1,
       "max": 65535,
       "required": true
+    },
+    {
+      "key": "dimmers",
+      "type": "string",
+      "label": {
+        "en": "Dimmers",
+        "fr": "Variateurs"
+      },
+      "description": {
+        "en": "Circuits of dimmer keys (672 10, 672 12, 672 14, 672 22, 036 10...), separated by commas, so Gladys gets a brightness for them: e.g. 944559-1, 944560-2. A circuit that sends a level frame is recognised on its own; this field is for the others. Not yet verified on hardware: feedback welcome.",
+        "fr": "Circuits des touches de variateur (672 10, 672 12, 672 14, 672 22, 036 10...), séparés par des virgules, pour que Gladys leur ajoute une luminosité : ex. 944559-1, 944560-2. Un circuit qui envoie une trame de niveau est reconnu tout seul ; ce champ sert pour les autres. Non encore vérifié sur matériel : retours bienvenus."
+      },
+      "placeholder": {
+        "en": "944559-1, 944560-2",
+        "fr": "944559-1, 944560-2"
+      },
+      "default": ""
     },
     {
       "key": "links_help",

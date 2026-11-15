@@ -9,21 +9,21 @@ import {
 } from '../src/config.js';
 
 test('defaults when nothing is configured', () => {
-  assert.deepEqual(normalizeConfig(), { host: DEFAULT_HOST, port: DEFAULT_PORT, links: new Map() });
-  assert.deepEqual(normalizeConfig({}), { host: '172.17.0.1', port: 2000, links: new Map() });
-  assert.deepEqual(normalizeConfig(null), { host: '172.17.0.1', port: 2000, links: new Map() });
+  assert.deepEqual(normalizeConfig(), { host: DEFAULT_HOST, port: DEFAULT_PORT, links: new Map(), dimmers: new Set() });
+  assert.deepEqual(normalizeConfig({}), { host: '172.17.0.1', port: 2000, links: new Map(), dimmers: new Set() });
+  assert.deepEqual(normalizeConfig(null), { host: '172.17.0.1', port: 2000, links: new Map(), dimmers: new Set() });
 });
 
 test('valid values are kept, the host is trimmed', () => {
   assert.deepEqual(normalizeConfig({ host: '  192.168.1.5 ', port: 4001 }), {
     host: '192.168.1.5',
     port: 4001,
-    links: new Map(),
+    links: new Map(), dimmers: new Set(),
   });
   assert.deepEqual(normalizeConfig({ host: 'legrand-serial', port: '2000' }), {
     host: 'legrand-serial',
     port: 2000,
-    links: new Map(),
+    links: new Map(), dimmers: new Set(),
   });
 });
 

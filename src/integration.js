@@ -4,7 +4,7 @@
  *
  *   bus frame ──► registry ──► gladys.publishState        (state feedback)
  *   Gladys scan ──► registry ──► gladys.publishDiscoveredDevices
- *   Gladys command ──► gateway.setLight ──► registry ──► gladys.publishState
+ *   Gladys command ──► gateway.setLight / setLightLevel / setShutter ──► registry ──► gladys.publishState
  *   Gladys scenario click ──► gateway.launchScenario (one frame) ──► linked lights
  *   a light or a scenario ──► its linked lights (settings) ──► gladys.publishState
  *
@@ -20,12 +20,27 @@
 
 import { circuitFromDevice } from './circuits.js';
 import { normalizeConfig, sameGateway } from './config.js';
-import { addressFromIdUnit, circuitKey, encodeLightCommand, encodeScenarioCommand } from './protocol.js';
+import {
+  addressFromIdUnit,
+  circuitKey,
+  effectiveLevel,
+  encodeLightCommand,
+  encodeLightLevelCommand,
+  encodeScenarioCommand,
+  encodeShutterCommand,
+  SHUTTER_DOWN,
+  SHUTTER_STOP,
+  SHUTTER_UP,
+} from './protocol.js';
 
 const LIGHT_TYPE = 'light';
 const LIGHT_FEATURE = 'binary';
+const BRIGHTNESS_FEATURE = 'brightness';
+const SHUTTER_TYPE = 'shutter';
+const SHUTTER_FEATURE = 'state';
 const SCENARIO_TYPE = 'scenario';
 const SCENARIO_FEATURE = 'click';
+const SHUTTER_WORDS = { [SHUTTER_UP]: 'up', [SHUTTER_DOWN]: 'down', [SHUTTER_STOP]: 'stop' };
 // A scenario launched from Gladys must never come back as a "click" in Gladys
 // (a Gladys scene triggered by that button would loop): frames of the same key
 // seen within this delay after our own send are treated as an echo and ignored.
@@ -45,8 +60,9 @@ export class LegrandIntegration {
    * @param {(config: {host:string, port:number}) => Object} deps.createGateway
    * @param {import('./circuits.js').CircuitRegistry} deps.registry
    * @param {{read: () => Promise<unknown>, write: (data: unknown) => Promise<void>}} deps.storage
-   * @param {{light: {category: string, type: string}, scenario: {category: string, type: string}}} deps.constants
-   *        SDK values for a binary light and for a button that clicks
+   * @param {{light: {category: string, type: string}, brightness: {category: string, type: string},
+   *          shutter: {category: string, type: string}, scenario: {category: string, type: string}}} deps.constants
+   *        SDK values for a binary light, a dimmer level, a shutter state and a button that clicks
    * @param {{info: Function, warn: Function, error: Function, debug: Function}} deps.logger
    * @param {() => number} [deps.now]
    */
@@ -90,7 +106,7 @@ export class LegrandIntegration {
       this.logger.warn('Could not read the configuration, using defaults', error);
     }
     const config = normalizeConfig(raw);
-    this.links = config.links;
+    this.#applyLinks(config);
     this.#openGateway(config);
   }
 
@@ -107,8 +123,15 @@ export class LegrandIntegration {
     if (!circuit) {
       throw new Error(`Cannot find the circuit of device ${device && device.external_id}`);
     }
-    if (String(device.external_id).includes(`:${SCENARIO_TYPE}:`)) {
+    const externalId = String(device.external_id);
+    if (externalId.includes(`:${SCENARIO_TYPE}:`)) {
       return this.#launchScenario(circuit, value);
+    }
+    if (externalId.includes(`:${SHUTTER_TYPE}:`)) {
+      return this.#moveShutter(circuit, feature, value);
+    }
+    if (feature && String(feature.external_id).endsWith(`:${BRIGHTNESS_FEATURE}`)) {
+      return this.#setLevel(circuit, feature, value);
     }
     if (value !== 0 && value !== 1) {
       throw new Error(`Unsupported value ${value}: a light only accepts 0 or 1`);
@@ -129,6 +152,50 @@ export class LegrandIntegration {
     if (isNew) this.#save();
     await this.#publish(feature.external_id, on ? 1 : 0, `light:${circuit.key}`);
     this.#propagate(circuit.key, on, true);
+  }
+
+  /**
+   * Set a dimmer level from Gladys (0..100 %). The bus only knows 20..100 % by
+   * steps of 10, so the level really sent is published back to Gladys.
+   */
+  async #setLevel(circuit, feature, value) {
+    const level = Number(value);
+    if (!Number.isFinite(level) || level < 0 || level > 100) {
+      throw new Error(`Unsupported value ${value}: a brightness accepts 0 to 100`);
+    }
+    if (!this.gateway) {
+      throw new Error('The serial gateway is not configured');
+    }
+    await this.gateway.setLightLevel({ legrandId: circuit.legrandId, unit: circuit.unit, level });
+    const sent = effectiveLevel(level);
+    this.logger.info(`Sent ${encodeLightLevelCommand({ legrandId: circuit.legrandId, unit: circuit.unit, level })} (${circuit.key} level ${sent} %)`);
+
+    const { isNew } = this.registry.setLevel(circuit.legrandId, circuit.unit, sent, this.now());
+    if (isNew) this.#save();
+    const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
+    await this.#publish(feature.external_id, sent, `brightness:${circuit.key}`);
+    await this.#publish(ids.feature(LIGHT_FEATURE), sent > 0 ? 1 : 0, `light:${circuit.key}`);
+    this.#propagate(circuit.key, sent > 0, true);
+  }
+
+  /**
+   * Move a shutter from Gladys: 1 up, -1 down, 0 stop. The requested order is
+   * published as the state as soon as the frame is written (the bus never says
+   * where a shutter is).
+   */
+  async #moveShutter(circuit, feature, value) {
+    if (value !== SHUTTER_UP && value !== SHUTTER_DOWN && value !== SHUTTER_STOP) {
+      throw new Error(`Unsupported value ${value}: a shutter accepts 1 (up), -1 (down) or 0 (stop)`);
+    }
+    if (!this.gateway) {
+      throw new Error('The serial gateway is not configured');
+    }
+    await this.gateway.setShutter({ legrandId: circuit.legrandId, unit: circuit.unit, state: value });
+    this.logger.info(`Sent ${encodeShutterCommand({ legrandId: circuit.legrandId, unit: circuit.unit, state: value })} (${circuit.key} ${SHUTTER_WORDS[value]})`);
+
+    const { isNew } = this.registry.setShutterState(circuit.legrandId, circuit.unit, value, this.now());
+    if (isNew) this.#save();
+    await this.#publish(feature.external_id, value, `shutter:${circuit.key}`);
   }
 
   /**
@@ -168,12 +235,29 @@ export class LegrandIntegration {
     const observation = this.registry.observe(frame, this.now());
     if (!observation) return;
 
-    const { kind, circuit, isNew, changed, triggered } = observation;
+    const { kind, circuit, isNew, changed, levelChanged, becameDimmable, triggered } = observation;
     if (isNew) {
       this.logger.info(`New ${kind} seen on the bus: ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)})`);
       this.#save();
+    } else if (becameDimmable) {
+      this.logger.info(`Light ${circuit.key} is a dimmer (frame ${frame.raw}): scan again to add its brightness`);
+      this.#save();
     }
 
+    if (kind === 'shutter') {
+      if (changed) {
+        this.logger.info(`Shutter ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)}) ${SHUTTER_WORDS[circuit.state]} (frame ${frame.raw})`);
+        const ids = this.gladys.externalIds(SHUTTER_TYPE, circuit.key);
+        void this.#publish(ids.feature(SHUTTER_FEATURE), circuit.state, `shutter:${circuit.key}`);
+      }
+      return;
+    }
+
+    if (kind === 'light' && circuit.dimmable && (levelChanged || (changed && !circuit.on))) {
+      // A level frame, or "off" on a dimmer: the brightness follows.
+      const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
+      void this.#publish(ids.feature(BRIGHTNESS_FEATURE), circuit.on ? circuit.level : 0, `brightness:${circuit.key}`);
+    }
     if (kind === 'light' && changed) {
       this.logger.info(`Light ${circuit.key} (address ${addressFromIdUnit(circuit.legrandId, circuit.unit)}) is now ${circuit.on ? 'on' : 'off'} (frame ${frame.raw})`);
       const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
@@ -236,6 +320,7 @@ export class LegrandIntegration {
   async #onScan() {
     const devices = [
       ...this.registry.list().map((circuit) => this.buildDevice(circuit)),
+      ...this.registry.listShutters().map((circuit) => this.buildShutterDevice(circuit)),
       ...this.registry.listScenarios().map((circuit) => this.buildScenarioDevice(circuit)),
     ];
     if (devices.length === 0) {
@@ -244,9 +329,23 @@ export class LegrandIntegration {
     await this.gladys.publishDiscoveredDevices(devices);
   }
 
-  /** Gladys device description of one light circuit. */
+  /** Gladys device description of one light circuit (with a brightness when it is a dimmer). */
   buildDevice(circuit) {
     const ids = this.gladys.externalIds(LIGHT_TYPE, circuit.key);
+    const features = [];
+    if (circuit.dimmable) {
+      features.push({
+        name: 'Brightness',
+        external_id: ids.feature(BRIGHTNESS_FEATURE),
+        category: this.constants.brightness.category,
+        type: this.constants.brightness.type,
+        min: 0,
+        max: 100,
+        read_only: false,
+        has_feedback: true,
+        keep_history: true,
+      });
+    }
     return {
       name: `Legrand ${circuit.key}${this.#hintSuffix(circuit)}`,
       external_id: ids.device,
@@ -263,6 +362,34 @@ export class LegrandIntegration {
           type: this.constants.light.type,
           min: 0,
           max: 1,
+          read_only: false,
+          has_feedback: true,
+          keep_history: true,
+        },
+        ...features,
+      ],
+    };
+  }
+
+  /** Gladys device description of one shutter key: up / down / stop. */
+  buildShutterDevice(circuit) {
+    const ids = this.gladys.externalIds(SHUTTER_TYPE, circuit.key);
+    return {
+      name: `Legrand volet ${circuit.key}${this.#hintSuffix(circuit)}`,
+      external_id: ids.device,
+      params: [
+        { name: 'LEGRAND_ID', value: String(circuit.legrandId) },
+        { name: 'UNIT', value: String(circuit.unit) },
+        { name: 'PRODUCT_HINT', value: this.registry.productHint(circuit.legrandId).product || '' },
+      ],
+      features: [
+        {
+          name: 'Shutter',
+          external_id: ids.feature(SHUTTER_FEATURE),
+          category: this.constants.shutter.category,
+          type: this.constants.shutter.type,
+          min: SHUTTER_DOWN,
+          max: SHUTTER_UP,
           read_only: false,
           has_feedback: true,
           keep_history: true,
@@ -298,7 +425,7 @@ export class LegrandIntegration {
     };
   }
 
-  /** " (inter)" or " (inter scenario)": the kind of product the key belongs to. */
+  /** " (inter)", " (variateur)", " (inter volet)" or " (inter scenario)": the kind of product the key belongs to. */
   #hintSuffix(circuit) {
     const { product } = this.registry.productHint(circuit.legrandId);
     return product ? ` (${product})` : '';
@@ -308,13 +435,26 @@ export class LegrandIntegration {
 
   async #onConfigUpdated(raw) {
     const next = normalizeConfig(raw);
-    this.links = next.links;
+    this.#applyLinks(next);
     if (sameGateway(this.config, next)) {
       this.config = next;
       return;
     }
     this.logger.info(`Gateway settings changed: ${next.host}:${next.port}`);
     this.#openGateway(next);
+  }
+
+  /** Keep the rules and declare the dimmers listed in the settings. */
+  #applyLinks(config) {
+    this.links = config.links;
+    let changed = false;
+    for (const key of config.dimmers) {
+      if (this.registry.markDimmable(key)) {
+        changed = true;
+        this.logger.info(`Light ${key} declared as a dimmer in the settings: scan to add its brightness`);
+      }
+    }
+    if (changed) this.#save();
   }
 
   #openGateway(config) {

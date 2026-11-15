@@ -50,6 +50,24 @@ export function parseLinks(raw) {
 }
 
 /**
+ * Read the "dimmers" setting: circuit keys ("944559-1") separated by commas,
+ * spaces, ";" or new lines. Each one is exposed in Gladys with a brightness
+ * feature. Invalid keys are skipped, never thrown.
+ * @param {unknown} raw
+ * @returns {Set<string>}
+ */
+export function parseDimmers(raw) {
+  const dimmers = new Set();
+  if (typeof raw !== 'string') return dimmers;
+  for (const token of raw.split(/[,;\s\n]+/)) {
+    if (!/^\d+-\d+$/.test(token)) continue;
+    const key = parseKey(token);
+    if (key) dimmers.add(key);
+  }
+  return dimmers;
+}
+
+/**
  * The text of all the rule fields (link_1 ... link_6, one rule each), plus the
  * older single "links" field, joined as lines for parseLinks().
  */
@@ -68,7 +86,7 @@ function parseKey(text) {
 
 /**
  * @param {Record<string, unknown>} [raw] values from gladys.getConfig()
- * @returns {{ host: string, port: number, links: Map<string, {key: string, on: boolean|null}[]> }}
+ * @returns {{ host: string, port: number, links: Map<string, {key: string, on: boolean|null}[]>, dimmers: Set<string> }}
  */
 export function normalizeConfig(raw = {}) {
   const config = raw && typeof raw === 'object' ? raw : {};
@@ -82,6 +100,7 @@ export function normalizeConfig(raw = {}) {
     host: host === '' ? DEFAULT_HOST : host,
     port: validPort ? port : DEFAULT_PORT,
     links: parseLinks(linkText(config)),
+    dimmers: parseDimmers(config.dimmers),
   };
 }
 

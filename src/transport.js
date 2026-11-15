@@ -24,7 +24,14 @@
 
 import net from 'node:net';
 import { EventEmitter } from 'node:events';
-import { FrameDecoder, parseFrame, encodeLightCommand, encodeScenarioCommand } from './protocol.js';
+import {
+  FrameDecoder,
+  parseFrame,
+  encodeLightCommand,
+  encodeLightLevelCommand,
+  encodeScenarioCommand,
+  encodeShutterCommand,
+} from './protocol.js';
 
 export class GatewayError extends Error {
   constructor(code, message) {
@@ -147,6 +154,16 @@ export class LegrandGateway extends EventEmitter {
   /** Switch a light circuit on or off. */
   async setLight({ legrandId, unit, on }) {
     return this.send(encodeLightCommand({ legrandId, unit, on }));
+  }
+
+  /** Set a dimmer to a level in percent (0 = off, else rounded to 20..100). */
+  async setLightLevel({ legrandId, unit, level }) {
+    return this.send(encodeLightLevelCommand({ legrandId, unit, level }));
+  }
+
+  /** Move a shutter: state 1 (up), -1 (down) or 0 (stop). */
+  async setShutter({ legrandId, unit, state }) {
+    return this.send(encodeShutterCommand({ legrandId, unit, state }));
   }
 
   // ---- internals -----------------------------------------------------------

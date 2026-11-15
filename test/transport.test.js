@@ -132,6 +132,23 @@ test('setLight writes the validated frame', async () => {
   }
 });
 
+test('setLightLevel and setShutter write their frames', async () => {
+  let received = '';
+  const server = await startFakeServer((socket) => socket.on('data', (d) => (received += d.toString())));
+  const gateway = fastGateway(server.port);
+  try {
+    gateway.start();
+    await once(gateway, 'connected');
+    await gateway.setLightLevel({ legrandId: 944559, unit: 1, level: 50 });
+    await gateway.setShutter({ legrandId: 944559, unit: 2, state: -1 });
+    await waitUntil(() => received.length >= 32);
+    assert.equal(received, '*1*5*#15112945##*2*2*#15112946##');
+  } finally {
+    gateway.stop();
+    await server.close();
+  }
+});
+
 test('launchScenario writes the scenario frame, in order with the lights', async () => {
   let received = '';
   const server = await startFakeServer((socket) => socket.on('data', (d) => (received += d.toString())));
