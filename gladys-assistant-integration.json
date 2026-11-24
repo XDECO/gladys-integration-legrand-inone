@@ -12,6 +12,9 @@
   "categories": [
     "lighting"
   ],
+  "transports": [
+    "local"
+  ],
   "cover_image": "https://raw.githubusercontent.com/XDECO/gladys-integration-legrand-inone/main/cover.png",
   "config_schema": [
     {
