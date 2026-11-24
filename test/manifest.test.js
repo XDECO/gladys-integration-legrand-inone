@@ -21,6 +21,10 @@ test('manifest basics follow the store rules', () => {
   }
 });
 
+test('the transport is local: a serial gateway on the local network', () => {
+  assert.deepEqual(manifest.transports, ['local']);
+});
+
 test('docker image has an explicit tag equal to the manifest version', () => {
   assert.match(manifest.docker_image, /^ghcr\.io\/[a-z0-9._/-]+:\d+\.\d+\.\d+$/);
   assert.ok(manifest.docker_image.endsWith(`:${manifest.version}`));
